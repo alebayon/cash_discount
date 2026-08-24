@@ -1,0 +1,48 @@
+---
+description: dbt cash_discount project conventions and context
+alwaysApply: true
+---
+
+# cash_discount — dbt project
+
+Personal dbt project for **cash_discount** analytics and modeling.
+Workspace: `C:\dbt\cash_discount`
+
+## Before making changes
+
+- Read `docs/decisions.md` for architecture choices made in prior chats.
+- Follow the conventions defined in this rule and in `docs/decisions.md`.
+
+## Model layering
+
+| Layer | Folder | Materialization | Naming |
+|-------|--------|-----------------|--------|
+| Sources / staging | `models/src/` | ephemeral or view | `src_<entity>.sql` |
+| Dimensions | `models/dim/` | table | `dim_<entity>.sql` |
+| Facts | `models/fct/` | table | `fct_<event>.sql` |
+| Marts | `models/mart/` | table or view | `mart_<use_case>.sql` |
+
+## SQL style
+
+- Use CTEs; one logical step per CTE with a clear name.
+- Prefer explicit column lists over `SELECT *` in final outputs.
+- Reference sources with `{{ source('...', '...') }}` and models with `{{ ref('...') }}`.
+- Add schema YAML (`models/<layer>/_<layer>__models.yml`) for docs and tests.
+
+## dbt commands (run from this folder)
+
+```bash
+dbt debug
+dbt run
+dbt test
+dbt build
+```
+
+## What not to commit
+
+- Credentials: keep `profiles.yml` in `~/.dbt/`, not in this repo.
+- Generated dirs: `target/`, `dbt_packages/`, `logs/`.
+
+## When a decision is made in chat
+
+Add a dated entry to `docs/decisions.md` so future chats stay aligned.
