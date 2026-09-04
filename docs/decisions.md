@@ -19,11 +19,54 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 - [ ] Source tables: names and schemas? (still TBD — modeling not started)
 
+- [ ] raw_inv_sap synthetic fields: minimum BKPF/BSEG columns for P1 (is_invoice / is_entitled)?
+
+- [ ] Payment-terms lookup: seed table vs hardcoded mapping for ZTERM → discount %?
+
+
 ---
 
 ## Decisions
 
 <!-- Copy this block for each new decision -->
+
+2026-09-04 — SAP vendor slice implemented (seed → src → dim + tests)
+Context: Phase 2 synthetic data; prove full dbt pipeline on one entity before invoices.
+
+Decision:
+
+Raw (seed)
+
+File: seeds/raw_vendor_sap.csv
+SAP LFA1 field names: LIFNR, NAME1, LAND1, ORT01, PSTLZ, KTOKK, LOEVM, ERDAT
+7 synthetic rows (6 active, 1 deleted: LIFNR 0000100005 with LOEVM = X)
+Loaded via dbt seed → AP_MODEL.DEV.RAW_VENDOR_SAP
+Referenced in models via {{ ref('raw_vendor_sap') }} (not source())
+Src
+
+Model: src_vendor_sap (view, models/src/)
+Reads {{ ref('raw_vendor_sap') }}
+Renames: LIFNR → vendor_id, NAME1 → vendor_name, LAND1 → country_code, ORT01 → city, PSTLZ → postal_code, KTOKK → account_group, LOEVM → deletion_flag, ERDAT → created_date
+Casts: erdat → date; nullif(trim(loevm), '') for deletion_flag
+Includes all vendors (active and deleted)
+Dim
+
+Model: dim_vendor_sap (table, models/dim/)
+Reads {{ ref('src_vendor_sap') }}
+Grain: one row per vendor_id
+Dedupes on vendor_id (qualify row_number() … order by created_date desc)
+Active vendors only: where deletion_flag is null (deleted vendor 0000100005 excluded)
+Adds is_active (= true for all rows in dim)
+Output: 6 rows
+Tests
+
+File: models/dim/_dim__models.yml (per-layer schema YAML convention)
+dim_vendor_sap.vendor_id: unique, not_null
+Run: dbt test --select dim_vendor_sap or dbt build --select raw_vendor_sap+
+Why: Validates seed → view → table pattern end-to-end. Dim holds only billable/active suppliers for downstream FK joins. Generic tests live in layer YAML; custom SQL tests in tests/ deferred until business rules need them.
+
+Impact: Vendor lineage complete. Next slice: raw_inv_sap → src_inv_sap → fct_inv_sap (FK vendor_id → dim_vendor_sap). After seed CSV changes: dbt build --select raw_vendor_sap+
+
 
 ### 2026-09-03 — dbt + Snowflake dev environment
 
@@ -426,9 +469,17 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 
 ## Model inventory
 
+
 | Model | Layer | Grain | Notes |
 |-------|-------|-------|-------|
-| _example_ | src | one row per … | _not built yet_ |
+| raw_vendor_sap | seed | one row per vendor | SAP LFA1 names; 7 rows in CSV |
+| src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
+| dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
+| _dim__models.yml | schema | — | unique + not_null on vendor_id |
+| src_smoke_test | src (view) | — | Connection smoke test |
+| raw_inv_sap | seed | one row per invoice | not built yet |
+| src_inv_sap | src (view) | one row per invoice | not built yet |
+| fct_inv_sap | fct (table) | one row per invoice | not built yet; FK to dim_vendor_sap |
 
 ---
 
@@ -447,6 +498,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-_Last updated: 2026-09-03_
+Last updated: 2026-09-04
 
-Setup complete: `dbt debug` and `dbt run` pass. Smoke test model `src_smoke_test` in `AP_MODEL.DEV`. Next: seeds/sources and first `src_` models per layering decision.
+SAP vendor slice complete: raw_vendor_sap (seed, 7 rows) → src_vendor_sap (view) → dim_vendor_sap (table, 6 active vendors). Tests in models/dim/_dim__models.yml (unique + not_null on vendor_id). Pipeline validated with dbt seed, dbt run, dbt test. Next: synthetic raw_inv_sap seed and src_inv_sap / fct_inv_sap with FK to dim_vendor_sap.

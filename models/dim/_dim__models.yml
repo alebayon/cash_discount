@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: dim_vendor_sap
+    description: SAP vendor dimension. One row per active vendor.
+    columns:
+      - name: vendor_id
+        description: SAP vendor account number (from LIFNR).
+        tests:
+          - unique
+          - not_null
