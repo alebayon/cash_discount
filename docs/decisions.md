@@ -17,8 +17,6 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Move items to "Decisions" once resolved -->
 
-- [ ] raw_inv_sap synthetic fields: minimum BKPF/BSEG columns for P1 (is_invoice / is_entitled)?
-
 - [ ] Payment-terms lookup: seed table vs hardcoded mapping for ZTERM → discount %?
 
 
@@ -27,6 +25,55 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 ## Decisions
 
 <!-- Copy this block for each new decision -->
+
+2026-09-06 — SAP invoice slice implemented (seed → src → fct + tests)
+Context: Phase 2 synthetic data; prove invoice pipeline with FK to dim_vendor_sap before entitlement / leakage logic.
+
+Decision:
+
+Raw (seed)
+
+File: seeds/raw_inv_sap.csv
+SAP BKPF/BSEG-style field names: BELNR, BUKRS, GJAHR, LIFNR, BLART, ZFBDT, ZTERM, WRBTR, WAERS, BUDAT, BLDAT
+12 synthetic rows (11 KR vendor invoices, 1 KG credit memo for out-of-scope boundary)
+LIFNR values match active vendors in dim_vendor_sap (0000100001–0000100007 except deleted 0000100005)
+Labeled scenarios in seed: net-only ZTERM (N030), null ZFBDT, zero WRBTR, non-KR doc type (KG)
+Loaded via dbt seed → AP_MODEL.DEV.RAW_INV_SAP
+Referenced in models via {{ ref('raw_inv_sap') }} (not source())
+
+Src
+
+Model: src_inv_sap (view, models/src/)
+Reads {{ ref('raw_inv_sap') }}
+Composite key: trim(belnr) || '-' || trim(bukrs) || '-' || trim(gjahr) → sap_inv_key
+Renames: LIFNR → vendor_id, BLART → document_type, ZFBDT → baseline_date, ZTERM → payment_terms, WRBTR → invoice_amount, WAERS → currency_code, BUDAT → posting_date, BLDAT → document_date; also exposes doc_number, company_code, fiscal_year
+Casts: zfbdt → date (nullif empty); wrbtr → number(18,2); budat/bldat → date
+Includes all document types (KR and non-KR); no business filters; payment_terms kept as SAP code (no mapping yet)
+
+Fct
+
+Model: fct_inv_sap (table, models/fct/)
+Reads {{ ref('src_inv_sap') }}
+Grain: one row per invoice (sap_inv_key)
+Invoice population filter (P1 is_invoice): document_type = 'KR' and vendor_id is not null
+Non-KR rows remain in src only (e.g. KG row excluded from fct)
+FK: vendor_id → dim_vendor_sap (enforced via relationships test)
+Output: 11 rows
+Deferred to next slice: is_entitled, discount_pct, discount_deadline_date, taken/leakage buckets (require payment-terms lookup and clearing data)
+
+Tests
+
+File: models/fct/_fct__models.yml (per-layer schema YAML convention)
+fct_inv_sap.sap_inv_key: unique, not_null
+fct_inv_sap.vendor_id: not_null, relationships → dim_vendor_sap.vendor_id
+Run: dbt build --select raw_inv_sap+ dim_vendor_sap
+After seed CSV changes: dbt build --select raw_inv_sap+ dim_vendor_sap
+
+Why: Validates seed → view → table pattern for invoices with FK to vendor dim. Src holds full AP document extract; fct holds invoice grain only. ZTERM mapping and entitlement logic deferred until payment-terms seed is added.
+
+Impact: SAP invoice lineage complete for P1 structural columns. Next: seed_payment_terms_sap (ZTERM → discount % / days) and enrich fct_inv_sap with is_entitled; then Coupa invoice slice and map_inv_sap_coupa.
+
+Resolved (moved from open questions): minimum raw_inv_sap columns for P1 slice — BELNR, BUKRS, GJAHR, LIFNR, BLART, ZFBDT, ZTERM, WRBTR, plus WAERS, BUDAT, BLDAT for realistic staging; clearing / taken fields not required for this vertical slice.
 
 2026-09-04 — SAP vendor slice implemented (seed → src → dim + tests)
 Context: Phase 2 synthetic data; prove full dbt pipeline on one entity before invoices.
@@ -63,7 +110,7 @@ dim_vendor_sap.vendor_id: unique, not_null
 Run: dbt test --select dim_vendor_sap or dbt build --select raw_vendor_sap+
 Why: Validates seed → view → table pattern end-to-end. Dim holds only billable/active suppliers for downstream FK joins. Generic tests live in layer YAML; custom SQL tests in tests/ deferred until business rules need them.
 
-Impact: Vendor lineage complete. Next slice: raw_inv_sap → src_inv_sap → fct_inv_sap (FK vendor_id → dim_vendor_sap). After seed CSV changes: dbt build --select raw_vendor_sap+
+Impact: Vendor lineage complete. Invoice slice also complete; next is payment-terms seed + is_entitled.
 
 
 ### 2026-09-03 — dbt + Snowflake dev environment
@@ -166,7 +213,7 @@ Note (2026-09-02): The 2026-08-31 entry originally scoped dim / fct / map only; 
 
 **Key definitions:**
 
-- **`sap_inv_key`** — SAP invoice business key: `doc_number + company_code + fiscal_year` (composite, unique per SAP invoice). Suffix `_key` because it is a concatenated business key, not a single source id.
+- **`sap_inv_key`** — implemented as doc_number || '-' || company_code || '-' || fiscal_year.
 - **`coupa_id`** — Coupa invoice id (already unique per invoice). Suffix `_id`.
 - **`sap_ref_key`** — Attribute on `fct_inv_sap` only (not an FK). Populated with `coupa_id` when the Coupa invoice is posted to SAP. Used to **build and validate** the map; not the SAP-side key in the map.
 
@@ -182,6 +229,7 @@ FROM fct_inv_sap s
 INNER JOIN fct_inv_coupa c
   ON s.sap_ref_key = c.coupa_id
 WHERE s.sap_ref_key IS NOT NULL
+```
 
 Cardinality:
 
@@ -338,130 +386,20 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 
 **Impact:** Mart KPIs, dashboard headline numbers, synthetic test expected values.
 
----
+### 2026-08-24 — Exclusion inputs at clearing (P1)
 
-## Model inventory
-
-| Model | Layer | Grain | Notes |
-|-------|-------|-------|-------|
-| _example_ | src | one row per … | _not built yet_ |
-
----
-
-## Conventions (stable)
-
-Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always follow them.
-
-- **Project name / profile:** _TBD_
-- **Default schema:** _TBD_
-- **Staging prefix:** `src_`
-- **Key tests:** uniqueness, not_null on primary keys
-
----
-
-## Chat handoff notes
-
-<!-- Paste a short summary when switching to a new chat -->
-
-_Last updated: 2026-08-24_
+**Context:** The leakage funnel step "Excluded?" needs defensible inputs. Exclusion must reflect status at payment/clearing time, not current SAP/Coupa document status.
 
 **Decision:** Exclusion inputs are **point-in-time at clearing**:
 
 - Snapshot at `clearing_date`: `payment_block_at_clearing`, `dispute_open_at_clearing`, `match_or_gr_block_at_clearing`, `do_not_take_skonto_at_clearing`.
 - Values are **immutable** on the invoice payment fact after clearing (no refresh from current Coupa/SAP status).
 - `is_excluded` is derived only from these snapshot fields, evaluated when `is_entitled AND NOT is_taken`.
-- Not paid: snapshot fields NULL; exclusion not evaluated for paid-period leakage KPIs.
+- Not paid: snapshot fields are NULL; exclusion is not evaluated for paid-period leakage KPIs.
 
-### 2026-08-26 — `is_invoice` definition (P1)
+**Why:** Avoids retroactive reclassification when blocks/disputes are resolved after payment. Matches how AP audit and leakage analysis are done in practice.
 
-**Decision:** `is_invoice = true` when:
-
-1. `document_type = 'KR'` (P1 allowlist: KR only).
-2. `vendor_id IS NOT NULL` (vendor AP document).
-
-**P1 assumptions:**
-
-- One row per document; header and primary vendor line at the same grain.
-- One vendor line per invoice in source data (no multi-line modeling).
-- Posted vendor invoices only; credit memos, payments, and reversals are not in the P1 extract.
-- Posting key `31` may be stored but is not required for the `is_invoice` rule in P1.
-
-**Out of scope P1:** multi-line invoices, line-level `SKFBT`, doc types beyond KR.
-
-### 2026-08-26 — `is_entitled` definition (P1)
-
-**Context:** Need a defensible, testable rule for which paid invoices enter the cash-discount KPI universe (bucket 1.1.1 / denominator for `leakage_rate`). Entitlement is structural (opportunity exists in principle), not “Skonto still available at payment date.”
-
-**Decision:** An invoice is **`is_entitled = true`** only when **all** of the following are true:
-
-1. **In-scope document type** — vendor invoice in the AP population (not credit memo, payment-only document, reversal, or other out-of-scope doc types).
-2. **Paid in reporting period** — cleared/paid within the chosen scope (e.g. company X, invoices paid in 2025).
-3. **Baseline date present** — `baseline_date` (SAP: `ZFBDT`) is not null.
-4. **Discount-capable payment terms** — `ZTERM` (or equivalent CD payment term) is present and maps to a **discount percentage > 0** (e.g. 2% in 2/10 net 30).
-5. **Computable discount deadline** — `discount_deadline_date` can be derived from `baseline_date` + payment terms. If no deadline can be computed (unknown/unsupported/invalid term), **`is_entitled = false`** (`not_entitled_reason = 'no_deadline'`).
-6. **Discount base > 0** — payable value subject to Skonto is greater than zero.
-7. **Discount percentage > 0** — from payment terms (net-only terms → not entitled).
-
-**P1 simplifications (documented assumptions):**
-
-- **`discount_base_amount = invoice_amount`** — full invoice amount is discount-eligible; no partial base, no line-level split, no separate `SKFBT` logic in P1.
-- **Single discount tier per invoice** — one % applied to the full base (e.g. 2/10 net 30 only; no multi-tier 2/10, 1/15, net 30 in P1).
-- **Entitlement does not depend on payment timing** — an invoice paid after the discount window can still be entitled if rules 1–7 hold; lateness affects taken/leakage, not entitlement.
-
-**Derived amounts (not entitlement gates):**
-
-```text
-discount_opportunity_amount = discount_base_amount × discount_pct
-lost_discount_amount          = discount_opportunity_amount - discount_taken_amount   (for entitled rows)
-
-### 2026-08-24 — Leakage funnel (bucket scope)
-
-**Context:** Need a defensible KPI for cash discount leakage; not all late payments count.
-
-**Decision:** Apply an ordered funnel to every invoice:
-1. **Entitled?** No → out of scope (no discount opportunity).
-2. **Taken?** Yes → **realized** (success).
-3. **Excluded?** Yes → **explained non-take** (not leakage).
-4. Else → **leakage**.
-
-Formula: `leakage = entitled AND NOT taken AND NOT excluded`. Checks are sequential, not parallel tags.
-
-**Why:** Separates success, valid exceptions, and true leakage before root-cause work.
-
-**Impact:** Status/bucket columns on invoice-level facts; all downstream KPIs and tests.
-
----
-
-### 2026-08-24 — Leakage root-cause categories
-
-**Context:** After identifying leakage, analysis must explain *why* discount was lost.
-
-**Decision:** Split **leakage only** (not realized, not excluded) into three categories:
-- **Structural** — terms, baseline/receipt policy, or window vs realistic cycle time
-- **Timing** — process or payment calendar too slow (blocks, approvals, pay run)
-- **Capture** — in time to take, but discount not applied at payment
-
-Attribution rules and `primary_cause` assignment are deferred to a later phase; categories are defined now.
-
-**Why:** Matches typical AP diagnosis; keeps KPI definition separate from root-cause narrative.
-
-**Impact:** `primary_cause` (or equivalent) on leakage rows; P2+ models and labeled scenarios.
-
----
-
-### 2026-08-24 — Hero metrics
-
-**Context:** Portfolio and diagnosis need a small set of top-level KPIs before building marts.
-
-**Decision:** First hero metrics:
-- **`leakage_eur`** — sum of lost discount amount on invoices classified as leakage
-- **`leakage_rate`** — share of **entitled** invoices (or entitled discount base) that are leakage — pick one denominator and use it consistently
-
-Also track realized and excluded counts/amounts for funnel sanity checks.
-
-**Why:** Results-first modeling; hiring managers see outcome before schema detail.
-
-**Impact:** Mart KPIs, dashboard headline numbers, synthetic test expected values.
+**Impact:** Clearing/payment columns and snapshot flags on `fct_inv_sap` (or a payment sub-fact); synthetic scenarios for excluded vs leakage rows. Deferred until after entitlement + payment-terms slice.
 
 ---
 
@@ -475,9 +413,10 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
 | _dim__models.yml | schema | — | unique + not_null on vendor_id |
 | src_smoke_test | src (view) | — | Connection smoke test |
-| raw_inv_sap | seed | one row per invoice | not built yet |
-| src_inv_sap | src (view) | one row per invoice | not built yet |
-| fct_inv_sap | fct (table) | one row per invoice | not built yet; FK to dim_vendor_sap |
+| raw_inv_sap | seed | one row per AP document | SAP BKPF-style names; 12 rows in CSV |
+| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; all doc types |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 11 rows; FK vendor_id → dim_vendor_sap |
+| _fct__models.yml | schema | — | unique + not_null on sap_inv_key; relationships on vendor_id |
 
 ---
 
@@ -496,6 +435,10 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-04
+Last updated: 2026-09-06
 
-SAP vendor slice complete: raw_vendor_sap (seed, 7 rows) → src_vendor_sap (view) → dim_vendor_sap (table, 6 active vendors). Tests in models/dim/_dim__models.yml (unique + not_null on vendor_id). Pipeline validated with dbt seed, dbt run, dbt test. Next: synthetic raw_inv_sap seed and src_inv_sap / fct_inv_sap with FK to dim_vendor_sap.
+SAP vendor slice complete: raw_vendor_sap (seed, 7 rows) → src_vendor_sap (view) → dim_vendor_sap (table, 6 active vendors). Tests in models/dim/_dim__models.yml.
+
+SAP invoice slice complete: raw_inv_sap (seed, 12 rows) → src_inv_sap (view, all doc types) → fct_inv_sap (table, 11 KR invoices). Tests in models/fct/_fct__models.yml (FK to dim_vendor_sap). Pipeline validated with dbt build --select raw_inv_sap+ dim_vendor_sap.
+
+Next: seed_payment_terms_sap (ZTERM → discount % / days) and is_entitled on fct_inv_sap; then Coupa invoice slice and map_inv_sap_coupa.

@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: fct_inv_sap
+    description: SAP vendor invoice fact. One row per posted vendor invoice (KR). Grain sap_inv_key.
+    columns:
+      - name: sap_inv_key
+        description: Composite business key (BELNR-BUKRS-GJAHR).
+        tests:
+          - unique
+          - not_null
+      - name: vendor_id
+        description: SAP vendor account number. FK to dim_vendor_sap.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_vendor_sap')
+                field: vendor_id
