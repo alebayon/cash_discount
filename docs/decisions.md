@@ -17,8 +17,6 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Move items to "Decisions" once resolved -->
 
-- [ ] Source tables: names and schemas? (still TBD — modeling not started)
-
 - [ ] raw_inv_sap synthetic fields: minimum BKPF/BSEG columns for P1 (is_invoice / is_entitled)?
 
 - [ ] Payment-terms lookup: seed table vs hardcoded mapping for ZTERM → discount %?
