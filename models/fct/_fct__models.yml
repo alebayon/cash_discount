@@ -17,3 +17,13 @@ models:
               arguments:
                 to: ref('dim_vendor_sap')
                 field: vendor_id
+      - name: discount_pct
+        description: Cash discount percentage from payment terms seed (e.g. 0.02 for Z210).
+      - name: discount_deadline_date
+        description: Last date of discount window (baseline_date + discount_days from seed).
+      - name: is_entitled
+        description: P1 structural entitlement (excludes paid-in-period gate). True when all entitlement checks pass.
+        tests:
+          - not_null
+      - name: not_entitled_reason
+        description: First failing P1 entitlement rule; null when is_entitled is true.

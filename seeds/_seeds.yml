@@ -1,0 +1,8 @@
+seeds:
+  - name: seed_payment_term_sap
+    description: SAP ZTERM lookup for discount % and days.
+    columns:
+      - name: ZTERM
+        tests:
+          - unique
+          - not_null

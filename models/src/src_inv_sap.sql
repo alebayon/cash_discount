@@ -49,3 +49,4 @@ select
     posting_date,
     document_date
 from renamed
+

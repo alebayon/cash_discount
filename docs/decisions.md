@@ -26,6 +26,34 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-08 — Payment terms seed + P1 structural entitlement on fct_inv_sap Context: Next slice after SAP invoice fact; map ZTERM to discount metadata and implement is_entitled / not_entitled_reason per 2026-08-26 P1 rules. Defer paid-in-period, taken, leakage.
+
+Decision:
+
+Raw (seed)
+
+File: seeds/seed_payment_term_sap.csv SAP-style key: ZTERM Columns: ZTERM, term_description, discount_pct, discount_days, net_days 2 rows: Z210 (2/10 net 30 — discount_pct 0.02, discount_days 10, net_days 30), N030 (Net 30 — discount_pct 0.00, discount_days null, net_days 30) Loaded via dbt seed → AP_MODEL.DEV.SEED_PAYMENT_TERM_SAP Referenced in models via {{ ref('seed_payment_term_sap') }} (not source()) Naming: file/table uses singular seed_payment_term_sap (not seed_payment_terms_sap)
+
+Fct enrichment
+
+Model: fct_inv_sap (table, models/fct/) Still reads {{ ref('src_inv_sap') }}; grain unchanged (one row per sap_inv_key; 11 KR rows) CTE chain: src → invoices (KR + vendor_id not null) → with_terms → with_entitlement with_terms: left join seed_payment_term_sap on payment_terms = zterm Adds discount_pct from seed Adds discount_deadline_date = dateadd(day, discount_days, baseline_date) when baseline_date and discount_days both not null; else null with_entitlement: not_entitled_reason = first failing rule (case order): no_baseline_date — baseline_date is null no_discount_terms — discount_pct is null or <= 0 (covers N030 and unknown ZTERM) no_deadline — discount_deadline_date is null (after above checks) zero_discount_base — invoice_amount <= 0 (P1 discount_base_amount = invoice_amount) is_entitled = not_entitled_reason is null (boolean)
+
+P1 is_entitled scope this slice
+
+Implemented: in-scope doc type (invoices filter), baseline present, discount-capable terms (pct > 0), computable deadline, discount base > 0, discount pct > 0 Deferred: paid in reporting period (full KPI universe ENT in leakage funnel requires this gate later) Deferred: is_taken, is_excluded, leakage buckets, discount_opportunity_amount, primary_cause
+
+Expected on current synthetic data (11 fct rows)
+
+8 entitled (Z210, baseline present, invoice_amount > 0) 3 not entitled: 5100000007 N030 → no_discount_terms; 5100000008 null baseline → no_baseline_date; 5100000009 zero amount → zero_discount_base
+
+Tests
+
+File: models/fct/_fct__models.yml Existing: sap_inv_key unique/not_null; vendor_id not_null/relationships → dim_vendor_sap Added column docs: discount_pct, discount_deadline_date, is_entitled (not_null), not_entitled_reason Run: dbt build --select seed_payment_term_sap+ fct_inv_sap
+
+Why: Completes payment-terms lookup and structural entitlement on SAP invoice fact. Funnel diagram ENT node fully applies only after paid-in-period is added; current is_entitled is structural pre-payment gate.
+
+Impact: SAP invoice slice ready for clearing/payment enrichment and Coupa/map work. Resolved open question: payment-terms lookup = seed table seed_payment_term_sap.
+
 2026-09-06 — SAP invoice slice implemented (seed → src → fct + tests)
 Context: Phase 2 synthetic data; prove invoice pipeline with FK to dim_vendor_sap before entitlement / leakage logic.
 
