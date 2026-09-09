@@ -1,3 +1,6 @@
+{% set period_start = var('reporting_period_start', '2024-01-01') %}
+{% set period_end   = var('reporting_period_end', '2024-12-31') %}
+
 with src as (
 
     select
@@ -72,6 +75,26 @@ with_entitlement as (
         end as not_entitled_reason
     from with_terms wt
 
+),
+
+with_payment as (
+
+    select
+        we.*,
+        we.clearing_date is not null as is_cleared,
+        (
+            we.clearing_date is not null
+            and we.clearing_date >= '{{ period_start }}'::date
+            and we.clearing_date <= '{{ period_end }}'::date
+        ) as is_paid_in_period,
+        (
+            we.not_entitled_reason is null
+            and we.clearing_date is not null
+            and we.clearing_date >= '{{ period_start }}'::date
+            and we.clearing_date <= '{{ period_end }}'::date
+        ) as is_kpi_entitled
+    from with_entitlement we
+
 )
 
 select
@@ -91,5 +114,8 @@ select
     discount_pct,
     discount_deadline_date,
     not_entitled_reason is null as is_entitled,
-    not_entitled_reason
-from with_entitlement
+    not_entitled_reason,
+    is_cleared,
+    is_paid_in_period,
+    is_kpi_entitled
+from with_payment

@@ -2,7 +2,10 @@ version: 2
 
 models:
   - name: fct_inv_sap
-    description: SAP vendor invoice fact. One row per posted vendor invoice (KR). Grain sap_inv_key.
+    description: >
+      SAP vendor invoice fact. One row per posted vendor invoice (KR).
+      Grain sap_inv_key. Structural is_entitled is period-agnostic;
+      is_kpi_entitled applies the reporting-period paid gate (dbt vars).
     columns:
       - name: sap_inv_key
         description: Composite business key (BELNR-BUKRS-GJAHR).
@@ -17,13 +20,33 @@ models:
               arguments:
                 to: ref('dim_vendor_sap')
                 field: vendor_id
+      - name: clearing_date
+        description: SAP clearing date (AUGDT). Null when invoice is open/uncleared.
       - name: discount_pct
         description: Cash discount percentage from payment terms seed (e.g. 0.02 for Z210).
       - name: discount_deadline_date
         description: Last date of discount window (baseline_date + discount_days from seed).
       - name: is_entitled
-        description: P1 structural entitlement (excludes paid-in-period gate). True when all entitlement checks pass.
+        description: >
+          P1 structural entitlement (pre-payment gate). True when all entitlement
+          checks pass regardless of clearing status or reporting period.
         tests:
           - not_null
       - name: not_entitled_reason
         description: First failing P1 entitlement rule; null when is_entitled is true.
+      - name: is_cleared
+        description: True when clearing_date is not null (invoice has been paid/cleared).
+        tests:
+          - not_null
+      - name: is_paid_in_period
+        description: >
+          True when cleared and clearing_date falls within reporting_period_start
+          and reporting_period_end (dbt_project.yml vars).
+        tests:
+          - not_null
+      - name: is_kpi_entitled
+        description: >
+          KPI funnel ENT node. is_entitled AND is_paid_in_period for the
+          configured reporting period.
+        tests:
+          - not_null
