@@ -12,7 +12,8 @@ with src as (
         invoice_amount,
         currency_code,
         posting_date,
-        document_date
+        document_date,
+        clearing_date
     from {{ ref('src_inv_sap') }}
 
 ),
@@ -31,7 +32,8 @@ invoices as (
         invoice_amount,
         currency_code,
         posting_date,
-        document_date
+        document_date,
+        clearing_date
     from src
     where document_type = 'KR'
       and vendor_id is not null
@@ -85,6 +87,7 @@ select
     currency_code,
     posting_date,
     document_date,
+    clearing_date,
     discount_pct,
     discount_deadline_date,
     not_entitled_reason is null as is_entitled,

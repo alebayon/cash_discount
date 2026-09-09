@@ -17,8 +17,6 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Move items to "Decisions" once resolved -->
 
-- [ ] Payment-terms lookup: seed table vs hardcoded mapping for ZTERM → discount %?
-
 
 ---
 
@@ -46,6 +44,8 @@ Expected on current synthetic data (11 fct rows)
 
 8 entitled (Z210, baseline present, invoice_amount > 0) 3 not entitled: 5100000007 N030 → no_discount_terms; 5100000008 null baseline → no_baseline_date; 5100000009 zero amount → zero_discount_base
 
+Structural is_entitled is evaluated on all invoice-grain rows regardless of payment status. KPI universe (leakage funnel ENT) is is_entitled AND paid_in_period; taken/leakage/exclusion apply only to that subset
+
 Tests
 
 File: models/fct/_fct__models.yml Existing: sap_inv_key unique/not_null; vendor_id not_null/relationships → dim_vendor_sap Added column docs: discount_pct, discount_deadline_date, is_entitled (not_null), not_entitled_reason Run: dbt build --select seed_payment_term_sap+ fct_inv_sap
@@ -54,7 +54,7 @@ Why: Completes payment-terms lookup and structural entitlement on SAP invoice fa
 
 Impact: SAP invoice slice ready for clearing/payment enrichment and Coupa/map work. Resolved open question: payment-terms lookup = seed table seed_payment_term_sap.
 
-2026-09-06 — SAP invoice slice implemented (seed → src → fct + tests)
+# 2026-09-06 — SAP invoice slice implemented (seed → src → fct + tests)
 Context: Phase 2 synthetic data; prove invoice pipeline with FK to dim_vendor_sap before entitlement / leakage logic.
 
 Decision:
@@ -445,6 +445,7 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; all doc types |
 | fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 11 rows; FK vendor_id → dim_vendor_sap |
 | _fct__models.yml | schema | — | unique + not_null on sap_inv_key; relationships on vendor_id |
+| seed_payment_term_sap | seed | one row per ZTERM | Z210, N030; 2 rows | Update fct_inv_sap note: 11 rows; discount_pct, discount_deadline_date, is_entitled, not_entitled_reason
 
 ---
 
@@ -463,10 +464,10 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-06
+Last updated: 2026-09-08
 
 SAP vendor slice complete: raw_vendor_sap (seed, 7 rows) → src_vendor_sap (view) → dim_vendor_sap (table, 6 active vendors). Tests in models/dim/_dim__models.yml.
 
 SAP invoice slice complete: raw_inv_sap (seed, 12 rows) → src_inv_sap (view, all doc types) → fct_inv_sap (table, 11 KR invoices). Tests in models/fct/_fct__models.yml (FK to dim_vendor_sap). Pipeline validated with dbt build --select raw_inv_sap+ dim_vendor_sap.
 
-Next: seed_payment_terms_sap (ZTERM → discount % / days) and is_entitled on fct_inv_sap; then Coupa invoice slice and map_inv_sap_coupa.
+Next: Payment terms + structural is_entitled on fct_inv_sap complete. Next: paid-in-period / clearing columns on fct_inv_sap; Coupa invoice slice; map_inv_sap_coupa.

@@ -11,7 +11,8 @@ with raw as (
         wrbtr,
         waers,
         budat,
-        bldat
+        bldat,
+        augdt
     from {{ ref('raw_inv_sap') }}
 
 ),
@@ -30,7 +31,8 @@ renamed as (
         cast(wrbtr as number(18, 2)) as invoice_amount,
         trim(waers) as currency_code,
         cast(budat as date) as posting_date,
-        cast(bldat as date) as document_date
+        cast(bldat as date) as document_date,
+        cast(nullif(trim(augdt), '') as date) as clearing_date
     from raw
 
 )
@@ -47,6 +49,7 @@ select
     invoice_amount,
     currency_code,
     posting_date,
-    document_date
+    document_date,
+    clearing_date
 from renamed
 
