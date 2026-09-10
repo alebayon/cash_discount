@@ -24,6 +24,48 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-09 — SAP clearing / paid-in-period on fct_inv_sap
+
+Context: Next slice after structural entitlement; add clearing date from seed, reporting-period gate, and KPI universe column (is_kpi_entitled). Defer is_taken, exclusion snapshots at clearing, leakage amounts.
+
+Decision:
+
+Raw (seed)
+
+File: seeds/raw_inv_sap.csv — added column AUGDT (SAP clearing date). Empty = open/uncleared. Labeled scenarios: paid in 2024 (0001–0004, 0007, 0008, 0012), open (0005, 0006, 0009), paid outside default period (0011 cleared 2025-02-05). After column add: dbt seed --full-refresh --select raw_inv_sap (existing Snowflake table lacks new column otherwise).
+
+Src
+
+Model: src_inv_sap (view, models/src/) — rename/cast only: AUGDT → clearing_date (cast nullif(trim(augdt), '') as date). No period logic, no joins.
+
+Reporting period (project vars)
+
+File: dbt_project.yml — vars: reporting_period_start: '2024-01-01', reporting_period_end: '2024-12-31'. Defaults align with synthetic seed; override at run time via --vars. SQL fallback in fct: var('reporting_period_start', '2024-01-01') and var('reporting_period_end', '2024-12-31').
+
+Fct enrichment
+
+Model: fct_inv_sap (table, models/fct/) — CTE chain extended: … → with_entitlement → with_payment. with_payment columns: is_cleared = clearing_date is not null; is_paid_in_period = cleared and clearing_date between period_start and period_end; is_kpi_entitled = not_entitled_reason is null and is_paid_in_period (same as structural is_entitled AND paid in period). is_entitled unchanged — structural only, period-agnostic.
+
+Entitlement vs KPI universe
+
+is_entitled = structural pre-payment gate (all KR rows). is_kpi_entitled = funnel ENT node for leakage KPIs (entitled ∩ paid in reporting period). Taken, excluded, leakage apply only to is_kpi_entitled rows (deferred).
+
+Expected on current synthetic data (11 fct rows, period 2024)
+
+8 is_entitled (unchanged). 8 is_cleared. 7 is_paid_in_period. 5 is_kpi_entitled (0001–0004, 0012). Not KPI: 0005/0006 open entitled; 0011 entitled paid in 2025; 0007/0008 paid but not entitled; 0009 open not entitled.
+
+Deferred
+
+is_taken, discount_taken_amount; exclusion snapshot flags at clearing (payment_block_at_clearing, dispute_open_at_clearing, match_or_gr_block_at_clearing, do_not_take_skonto_at_clearing) per 2026-08-24; is_excluded, leakage buckets, discount_opportunity_amount, primary_cause; company-code filter on reporting period; sap_ref_key for map_inv_sap_coupa.
+
+Tests
+
+File: models/fct/_fct__models.yml — added docs + not_null on is_cleared, is_paid_in_period, is_kpi_entitled; clearing_date documented. Run: dbt build --select raw_inv_sap+ fct_inv_sap
+
+Why: Completes paid-in-period gate so leakage funnel ENT node is materialized. clearing_date is timeless; is_paid_in_period / is_kpi_entitled are relative to dbt vars (rebuild fact when period changes in P1).
+
+Impact: SAP invoice fact ready for is_taken and exclusion-at-clearing slice. Coupa invoice slice and map_inv_sap_coupa remain next parallel tracks.
+
 2026-09-08 — Payment terms seed + P1 structural entitlement on fct_inv_sap Context: Next slice after SAP invoice fact; map ZTERM to discount metadata and implement is_entitled / not_entitled_reason per 2026-08-26 P1 rules. Defer paid-in-period, taken, leakage.
 
 Decision:
@@ -441,11 +483,11 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
 | _dim__models.yml | schema | — | unique + not_null on vendor_id |
 | src_smoke_test | src (view) | — | Connection smoke test |
-| raw_inv_sap | seed | one row per AP document | SAP BKPF-style names; 12 rows in CSV |
-| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; all doc types |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 11 rows; FK vendor_id → dim_vendor_sap |
-| _fct__models.yml | schema | — | unique + not_null on sap_inv_key; relationships on vendor_id |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030; 2 rows | Update fct_inv_sap note: 11 rows; discount_pct, discount_deadline_date, is_entitled, not_entitled_reason
+| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 12 rows; includes AUGDT |
+| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; includes clearing_date |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 11 rows; is_entitled, is_kpi_entitled, clearing_date |
+| _fct__models.yml | schema | — | PK/FK tests; not_null on is_entitled, is_cleared, is_paid_in_period, is_kpi_entitled |
 
 ---
 
@@ -464,10 +506,10 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
-SAP vendor slice complete: raw_vendor_sap (seed, 7 rows) → src_vendor_sap (view) → dim_vendor_sap (table, 6 active vendors). Tests in models/dim/_dim__models.yml.
+SAP vendor + invoice + payment-terms + clearing slices complete.
 
-SAP invoice slice complete: raw_inv_sap (seed, 12 rows) → src_inv_sap (view, all doc types) → fct_inv_sap (table, 11 KR invoices). Tests in models/fct/_fct__models.yml (FK to dim_vendor_sap). Pipeline validated with dbt build --select raw_inv_sap+ dim_vendor_sap.
+Lineage: raw_inv_sap (AUGDT) → src_inv_sap (clearing_date) → fct_inv_sap (is_entitled structural, is_cleared, is_paid_in_period, is_kpi_entitled). Period defaults: 2024-01-01 .. 2024-12-31 in dbt_project.yml vars. Expected: 8 entitled, 5 is_kpi_entitled.
 
-Next: Payment terms + structural is_entitled on fct_inv_sap complete. Next: paid-in-period / clearing columns on fct_inv_sap; Coupa invoice slice; map_inv_sap_coupa.
+Next: is_taken; exclusion snapshots at clearing; Coupa invoice slice; map_inv_sap_coupa; sap_ref_key on fct_inv_sap.
