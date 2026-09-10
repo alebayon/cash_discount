@@ -12,7 +12,8 @@ with raw as (
         waers,
         budat,
         bldat,
-        augdt
+        augdt,
+        sknto
     from {{ ref('raw_inv_sap') }}
 
 ),
@@ -32,7 +33,8 @@ renamed as (
         trim(waers) as currency_code,
         cast(budat as date) as posting_date,
         cast(bldat as date) as document_date,
-        cast(nullif(trim(augdt), '') as date) as clearing_date
+        cast(nullif(trim(augdt), '') as date) as clearing_date,
+        cast(nullif(trim(sknto), '') as number(18, 2)) as discount_taken_amount
     from raw
 
 )
@@ -50,6 +52,7 @@ select
     currency_code,
     posting_date,
     document_date,
-    clearing_date
+    clearing_date,
+    discount_taken_amount
 from renamed
 
