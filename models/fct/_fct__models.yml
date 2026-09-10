@@ -22,10 +22,22 @@ models:
                 field: vendor_id
       - name: clearing_date
         description: SAP clearing date (AUGDT). Null when invoice is open/uncleared.
+      - name: discount_taken_amount
+        description: >
+          SAP cash discount amount posted at clearing (SKNTO). Null when open/uncleared;
+          0 when cleared with no discount taken.
       - name: discount_pct
         description: Cash discount percentage from payment terms seed (e.g. 0.02 for Z210).
       - name: discount_deadline_date
         description: Last date of discount window (baseline_date + discount_days from seed).
+      - name: discount_opportunity_amount
+        description: >
+          Maximum discount available on structurally entitled rows
+          (invoice_amount × discount_pct).
+        tests:
+          - not_null:
+              config:
+                where: "is_entitled"        
       - name: is_entitled
         description: >
           P1 structural entitlement (pre-payment gate). True when all entitlement
@@ -50,3 +62,17 @@ models:
           configured reporting period.
         tests:
           - not_null
+      - name: is_taken
+        description: >
+          KPI funnel TAKEN node. True when is_kpi_entitled and discount_taken_amount
+          equals discount_opportunity_amount (> 0). False on other KPI entitled rows;
+          null when not is_kpi_entitled.
+        tests:
+          - not_null:
+              config:
+                where: "is_kpi_entitled"
+          - accepted_values:
+              arguments:
+                values: [true, false]
+              config:
+                where: "is_kpi_entitled"

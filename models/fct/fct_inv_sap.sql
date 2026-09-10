@@ -16,7 +16,8 @@ with src as (
         currency_code,
         posting_date,
         document_date,
-        clearing_date
+        clearing_date,
+        discount_taken_amount
     from {{ ref('src_inv_sap') }}
 
 ),
@@ -36,7 +37,8 @@ invoices as (
         currency_code,
         posting_date,
         document_date,
-        clearing_date
+        clearing_date,
+        discount_taken_amount
     from src
     where document_type = 'KR'
       and vendor_id is not null
@@ -95,6 +97,34 @@ with_payment as (
         ) as is_kpi_entitled
     from with_entitlement we
 
+),
+
+with_amounts as (
+
+    select
+        wp.*,
+        case
+            when wp.not_entitled_reason is null
+            then wp.invoice_amount * wp.discount_pct
+        end as discount_opportunity_amount
+    from with_payment wp
+
+),
+
+with_taken as (
+
+    select
+        wa.*,
+        case
+            when wa.is_kpi_entitled
+             and wa.discount_taken_amount > 0
+             and wa.discount_taken_amount = wa.discount_opportunity_amount
+            then true
+            when wa.is_kpi_entitled
+            then false
+        end as is_taken
+    from with_amounts wa
+
 )
 
 select
@@ -111,11 +141,14 @@ select
     posting_date,
     document_date,
     clearing_date,
+    discount_taken_amount,
     discount_pct,
     discount_deadline_date,
+    discount_opportunity_amount,
     not_entitled_reason is null as is_entitled,
     not_entitled_reason,
     is_cleared,
     is_paid_in_period,
-    is_kpi_entitled
-from with_payment
+    is_kpi_entitled,
+    is_taken
+from with_taken
