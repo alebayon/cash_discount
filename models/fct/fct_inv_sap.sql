@@ -17,7 +17,11 @@ with src as (
         posting_date,
         document_date,
         clearing_date,
-        discount_taken_amount
+        discount_taken_amount,
+        payment_block_at_clearing,
+        dispute_open_at_clearing,
+        match_or_gr_block_at_clearing,
+        do_not_take_skonto_at_clearing
     from {{ ref('src_inv_sap') }}
 
 ),
@@ -38,7 +42,11 @@ invoices as (
         posting_date,
         document_date,
         clearing_date,
-        discount_taken_amount
+        discount_taken_amount,
+        payment_block_at_clearing,
+        dispute_open_at_clearing,
+        match_or_gr_block_at_clearing,
+        do_not_take_skonto_at_clearing
     from src
     where document_type = 'KR'
       and vendor_id is not null
@@ -125,6 +133,21 @@ with_taken as (
         end as is_taken
     from with_amounts wa
 
+),
+
+with_exclusion as (
+
+    select
+        wt.*,
+        case
+            when wt.is_kpi_entitled and not wt.is_taken
+            then coalesce(wt.payment_block_at_clearing, false)
+              or coalesce(wt.dispute_open_at_clearing, false)
+              or coalesce(wt.match_or_gr_block_at_clearing, false)
+              or coalesce(wt.do_not_take_skonto_at_clearing, false)
+        end as is_excluded
+    from with_taken wt
+
 )
 
 select
@@ -150,5 +173,10 @@ select
     is_cleared,
     is_paid_in_period,
     is_kpi_entitled,
-    is_taken
-from with_taken
+    is_taken,
+    payment_block_at_clearing,
+    dispute_open_at_clearing,
+    match_or_gr_block_at_clearing,
+    do_not_take_skonto_at_clearing,
+    is_excluded
+from with_exclusion

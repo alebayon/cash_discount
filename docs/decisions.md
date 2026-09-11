@@ -16,13 +16,88 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 ## Open questions
 
 <!-- Move items to "Decisions" once resolved -->
-
+- Entitlement-at-clearing snapshot (baseline_date, payment_terms at clearing) — P2+ if retroactive entitlement changes on rebuild become a concern; not in P1 exclusion slice.
 
 ---
 
 ## Decisions
 
 <!-- Copy this block for each new decision -->
+
+2026-09-11 — Exclusion snapshots at clearing: rationale and flag definitions
+
+Context: Design record for EXCLUDED node before/during implementation. See 2026-09-11 implementation entry for seed/src/fct details.
+
+Decision:
+
+Why snapshot (not live ERP fields)
+
+Block, dispute, and match status fields are routinely updated after payment. Posted facts (clearing_date, SKNTO) are durable. Snapshot only mutable status that would misrepresent state at payment.
+
+Flag definitions at clearing
+
+payment_block_at_clearing — explicit pay block on invoice/vendor at clearing.
+dispute_open_at_clearing — invoice dispute open at clearing.
+match_or_gr_block_at_clearing — three-way match or GR incomplete at clearing.
+do_not_take_skonto_at_clearing — explicit instruction not to take Skonto at payment.
+
+Any flag true → is_excluded on eligible rows. Excluded rows are explained non-take, not leakage.
+
+P1 implementation
+
+At-clearing values in raw_inv_sap seed columns; not dbt snapshot model. Production: payment-time landing or separate raw clearing-status table; change-log reconstruction (raw_inv_sap_changes) P2+.
+
+Deferred
+
+Snapshot baseline_date and payment_terms at clearing (entitlement retroactivity on rebuild).
+
+Why: Documents business meaning and ingestion strategy separate from column implementation.
+
+Impact: Guides production source mapping and P2 hardening without blocking P1 synthetic funnel.
+
+
+2026-09-11 — Exclusion snapshots + is_excluded on fct_inv_sap
+
+Context: Next slice after is_taken. Implements KPI funnel EXCLUDED node per 2026-08-24. Exclusion flags are point-in-time at clearing (mutable ERP status would otherwise retroactively reclassify paid-without-discount rows). Rationale for snapshot vs live fields documented 2026-09-11 (business meaning of each flag). P1: at-clearing values stored directly in seed/fact — not dbt snapshot feature. Production may use payment-time landing or raw_inv_sap_changes later. Entitlement input snapshot (baseline_date, payment_terms at clearing) deferred P2+.
+
+Decision:
+
+Raw (seed)
+
+File: seeds/raw_inv_sap.csv — added columns PAYBLK_CLR, DISP_CLR, MGRBLK_CLR, NOSKNT_CLR (X = true at clearing; empty = false). Values meaningful only when AUGDT present; empty on open rows. New KR row 5100000013 (excluded scenario): entitled, paid in 2024, SKNTO 0, NOSKNT_CLR = X. Adjusted 5100000012 clearing to 2024-07-08 (in discount window — capture leakage candidate). Leakage candidates unchanged on flags: 0003 (late pay), 0012 (in-window no take). After column add: dbt seed --full-refresh --select raw_inv_sap.
+
+Src
+
+Model: src_inv_sap (view, models/src/) — rename/cast only. Raw → payment_block_at_clearing, dispute_open_at_clearing, match_or_gr_block_at_clearing, do_not_take_skonto_at_clearing. When AUGDT empty → null; when cleared → coalesce(X/TRUE/1 → true, else false). No is_excluded logic in src.
+
+Fct enrichment
+
+Model: fct_inv_sap (table, models/fct/) — CTE chain extended: … → with_taken → with_exclusion. Pass through four snapshot columns. is_excluded (KPI funnel EXCLUDED node): true when is_kpi_entitled and not is_taken and any snapshot flag true; false on other eligible rows; null when not is_kpi_entitled or is_taken. OR logic across flags. Dates not used for is_excluded.
+
+Scope note (refines 2026-08-24)
+
+is_excluded evaluated on is_kpi_entitled AND NOT is_taken (KPI funnel universe), not structural is_entitled alone. Open rows: snapshot flags null; exclusion not evaluated.
+
+Funnel formula (leakage deferred)
+
+leakage = is_kpi_entitled AND NOT is_taken AND NOT is_excluded. Sequential: ENT → TAKEN → EXCLUDED → LEAKAGE.
+
+Expected on current synthetic data (12 fct rows, period 2024)
+
+6 is_kpi_entitled (added 0013). 3 is_taken (0001, 0002, 0004). 3 not taken (0003, 0012, 0013). 1 is_excluded (0013). 2 leakage candidates (0003 timing, 0012 capture). Taken/open/non-KPI rows: is_excluded null.
+
+Deferred
+
+is_leakage column, primary_cause, lost_discount_amount; entitlement-at-clearing snapshot; Coupa invoice slice; map_inv_sap_coupa; sap_ref_key.
+
+Tests
+
+File: models/fct/_fct__models.yml — docs + not_null on four snapshot flags where is_cleared; docs + not_null + accepted_values on is_excluded where is_kpi_entitled and not is_taken. Singular tests in tests/: assert_fct_inv_sap_kpi_funnel_counts (updated counts), assert_fct_inv_sap_is_excluded_only_on_kpi_not_taken, assert_fct_inv_sap_exclusion_seed_scenarios; optional assert_fct_inv_sap_snapshot_flags_null_when_open. Run: dbt build --select raw_inv_sap+ fct_inv_sap. Develop workflow: dbt run models first if tests block on new columns.
+
+Why: Completes KPI funnel EXCLUDED node with audit-defensible point-in-time inputs. Separates explained non-take from leakage before root-cause attribution.
+
+Impact: SAP invoice fact ready for leakage bucket + primary_cause slice (timing on 0003, capture on 0012). Coupa/map remain parallel tracks.
+
 
 2026-09-10 — SAP discount taken amount + is_taken on fct_inv_sap
 
@@ -564,11 +639,11 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | _dim__models.yml | schema | — | unique + not_null on vendor_id |
 | src_smoke_test | src (view) | — | Connection smoke test |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030; 2 rows | Update fct_inv_sap note: 11 rows; discount_pct, discount_deadline_date, is_entitled, not_entitled_reason
-| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 12 rows; includes AUGDT |
-| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; includes clearing_date |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 11 rows; is_entitled, is_kpi_entitled, is_taken, discount_taken_amount, discount_opportunity_amount, clearing_date |
-| _fct__models.yml | schema | — | PK/FK tests; not_null on is_entitled, is_cleared, is_paid_in_period, is_kpi_entitled, is_taken (where is_kpi_entitled)|
-tests/ | singular | — | KPI funnel count + is_taken seed scenario tests
+| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 13 rows; AUGDT, SKNTO, PAYBLK_CLR, DISP_CLR, MGRBLK_CLR, NOSKNT_CLR |
+| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; clearing_date, discount_taken_amount, four *_at_clearing flags |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 12 rows; is_entitled, is_kpi_entitled, is_taken, is_excluded, four snapshot flags, clearing_date |
+| _fct__models.yml | schema | — | PK/FK tests; funnel column not_null/accepted_values including is_excluded |
+| tests/ | singular | — | KPI funnel counts, is_taken, is_excluded scope + seed scenarios |
 
 ---
 
@@ -587,10 +662,10 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
 
-SAP vendor + invoice + payment-terms + clearing + taken slices complete.
+SAP vendor + invoice + payment-terms + clearing + taken + exclusion slices complete.
 
-Lineage: raw_inv_sap (AUGDT, SKNTO) → src_inv_sap (clearing_date, discount_taken_amount) → fct_inv_sap (is_entitled structural, is_kpi_entitled, is_taken from SAP amounts). Period defaults: 2024-01-01 .. 2024-12-31. Expected: 8 is_entitled, 5 is_kpi_entitled, 3 is_taken.
+Lineage: raw_inv_sap (AUGDT, SKNTO, PAYBLK_CLR, DISP_CLR, MGRBLK_CLR, NOSKNT_CLR) → src_inv_sap → fct_inv_sap (is_kpi_entitled, is_taken, is_excluded + four snapshot flags). Period defaults: 2024-01-01 .. 2024-12-31. Expected: 8 is_entitled, 6 is_kpi_entitled, 3 is_taken, 1 is_excluded, 2 leakage candidates (0003, 0012).
 
-Next: is_excluded + exclusion snapshots at clearing; leakage buckets + primary_cause (dates for timing/capture); Coupa invoice slice; map_inv_sap_coupa; sap_ref_key on fct_inv_sap.
+Next: is_leakage, primary_cause, lost_discount_amount; Coupa invoice slice; map_inv_sap_coupa; sap_ref_key. Deferred P2+: entitlement-at-clearing snapshot (baseline_date, payment_terms).

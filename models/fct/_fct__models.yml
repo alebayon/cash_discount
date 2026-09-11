@@ -76,3 +76,53 @@ models:
                 values: [true, false]
               config:
                 where: "is_kpi_entitled"
+      - name: payment_block_at_clearing
+        description: >
+          Point-in-time snapshot at clearing. True when invoice/vendor had an
+          explicit payment block at clearing_date. Null when open/uncleared.
+        tests:
+          - not_null:
+              config:
+                where: "is_cleared"
+
+      - name: dispute_open_at_clearing
+        description: >
+          Point-in-time snapshot at clearing. True when an invoice dispute was
+          open at clearing_date. Null when open/uncleared.
+        tests:
+          - not_null:
+              config:
+                where: "is_cleared"
+
+      - name: match_or_gr_block_at_clearing
+        description: >
+          Point-in-time snapshot at clearing. True when three-way match or GR
+          was incomplete at clearing_date. Null when open/uncleared.
+        tests:
+          - not_null:
+              config:
+                where: "is_cleared"
+
+      - name: do_not_take_skonto_at_clearing
+        description: >
+          Point-in-time snapshot at clearing. True when payment was explicitly
+          instructed not to take Skonto at clearing_date. Null when open/uncleared.
+        tests:
+          - not_null:
+              config:
+                where: "is_cleared"
+
+      - name: is_excluded
+        description: >
+          KPI funnel EXCLUDED node. True when is_kpi_entitled, not is_taken,
+          and any exclusion snapshot flag is true at clearing. False on other
+          eligible rows; null when not is_kpi_entitled or is_taken.
+        tests:
+          - not_null:
+              config:
+                where: "is_kpi_entitled and not is_taken"
+          - accepted_values:
+              arguments:
+                values: [true, false]
+              config:
+                where: "is_kpi_entitled and not is_taken"
