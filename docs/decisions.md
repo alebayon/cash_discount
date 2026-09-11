@@ -32,6 +32,48 @@ Decision:
 
 Raw (seed)
 
+File: seeds/raw_inv_sap.csv — added column SKNTO (SAP cash discount amount in doc currency). Empty = open/uncleared; 0.00 = cleared with no discount taken. Labeled scenarios: full take (0001, 0002, 0004), paid no take (0003, 0012), open (0005, 0006, 0009), paid not entitled (0007, 0008), paid outside period with take (0011 → 84.00). After column add: dbt seed --full-refresh --select raw_inv_sap.
+
+Src
+
+Model: src_inv_sap (view, models/src/) — rename/cast only: SKNTO → discount_taken_amount (cast(nullif(trim(sknto), '') as number(18, 2))). No coalesce to 0; null = open, 0 = cleared with no discount.
+
+Fct enrichment
+
+Model: fct_inv_sap (table, models/fct/) — CTE chain extended: … → with_payment → with_amounts → with_taken. Pass-through discount_taken_amount after clearing_date. discount_opportunity_amount = invoice_amount × discount_pct on structurally entitled rows (not_entitled_reason is null). is_taken (KPI funnel TAKEN node): true when is_kpi_entitled and discount_taken_amount > 0 and discount_taken_amount = discount_opportunity_amount; false on other is_kpi_entitled rows; null when not is_kpi_entitled.
+
+Entitlement vs KPI vs taken
+
+is_entitled = structural, period-agnostic (opportunity exists). is_kpi_entitled = funnel ENT node (is_entitled AND is_paid_in_period). On PAID rows, is_kpi_entitled and NOT is_entitled are complements — no gap, no overlap. is_taken applies only to is_kpi_entitled rows.
+
+Taken vs diagnosis
+
+is_taken = cash outcome from SAP amount (full capture). clearing_date and discount_deadline_date are not used for is_taken. Leakage attribution (timing / capture / structural) deferred to rows where is_kpi_entitled and not is_taken and not is_excluded.
+
+Expected on current synthetic data (11 fct rows, period 2024)
+
+5 is_kpi_entitled (unchanged). 3 is_taken (0001, 0002, 0004). 2 not taken (0003, 0012). 0011 has discount_taken_amount = 84.00 but is_taken null (not KPI entitled). Open rows: discount_taken_amount null.
+
+Deferred
+
+is_excluded, exclusion snapshot flags at clearing (payment_block_at_clearing, dispute_open_at_clearing, match_or_gr_block_at_clearing, do_not_take_skonto_at_clearing); leakage buckets, lost_discount_amount, primary_cause; captured-but-not-entitled edge cases; sap_ref_key for map_inv_sap_coupa.
+
+Tests
+
+File: models/fct/_fct__models.yml — docs on discount_taken_amount, discount_opportunity_amount, is_taken; not_null on is_taken where is_kpi_entitled. Singular tests in tests/: assert_fct_inv_sap_kpi_funnel_counts, assert_fct_inv_sap_is_taken_only_on_kpi_entitled, assert_fct_inv_sap_is_taken_seed_scenarios (use -- comments, not #). Run: dbt build --select raw_inv_sap+ fct_inv_sap
+
+Why: Completes KPI funnel TAKEN node from actual posted discount, not a date proxy. Aligns with leakage funnel: classify from amounts, diagnose from dates later.
+
+Impact: SAP invoice fact ready for exclusion-at-clearing slice and leakage root-cause. Coupa invoice slice and map_inv_sap_coupa remain next parallel tracks.
+
+2026-09-10 — SAP discount taken amount + is_taken on fct_inv_sap
+
+Context: Next slice after paid-in-period gate. Taken is driven by actual SAP cash discount posted (SKNTO), not by clearing_date vs discount_deadline_date. Dates reserved for leakage root-cause (timing vs capture) on not-taken rows later.
+
+Decision:
+
+Raw (seed)
+
 File: seeds/raw_inv_sap.csv — added column SKNTO (SAP cash discount amount in doc currency). Empty = open/uncleared. Labeled scenarios: full take (0001, 0002, 0004), paid no take (0003, 0012), open (0005, 0006, 0009), paid not entitled (0007, 0008), paid outside period with take (0011 → 84.00). After column add: dbt seed --full-refresh --select raw_inv_sap.
 
 Src
@@ -524,8 +566,9 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030; 2 rows | Update fct_inv_sap note: 11 rows; discount_pct, discount_deadline_date, is_entitled, not_entitled_reason
 | raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 12 rows; includes AUGDT |
 | src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; includes clearing_date |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 11 rows; is_entitled, is_kpi_entitled, clearing_date |
-| _fct__models.yml | schema | — | PK/FK tests; not_null on is_entitled, is_cleared, is_paid_in_period, is_kpi_entitled |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 11 rows; is_entitled, is_kpi_entitled, is_taken, discount_taken_amount, discount_opportunity_amount, clearing_date |
+| _fct__models.yml | schema | — | PK/FK tests; not_null on is_entitled, is_cleared, is_paid_in_period, is_kpi_entitled, is_taken (where is_kpi_entitled)|
+tests/ | singular | — | KPI funnel count + is_taken seed scenario tests
 
 ---
 
@@ -544,10 +587,10 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
 
-SAP vendor + invoice + payment-terms + clearing slices complete.
+SAP vendor + invoice + payment-terms + clearing + taken slices complete.
 
-Lineage: raw_inv_sap (AUGDT) → src_inv_sap (clearing_date) → fct_inv_sap (is_entitled structural, is_cleared, is_paid_in_period, is_kpi_entitled). Period defaults: 2024-01-01 .. 2024-12-31 in dbt_project.yml vars. Expected: 8 entitled, 5 is_kpi_entitled.
+Lineage: raw_inv_sap (AUGDT, SKNTO) → src_inv_sap (clearing_date, discount_taken_amount) → fct_inv_sap (is_entitled structural, is_kpi_entitled, is_taken from SAP amounts). Period defaults: 2024-01-01 .. 2024-12-31. Expected: 8 is_entitled, 5 is_kpi_entitled, 3 is_taken.
 
-Next: is_taken; exclusion snapshots at clearing; Coupa invoice slice; map_inv_sap_coupa; sap_ref_key on fct_inv_sap.
+Next: is_excluded + exclusion snapshots at clearing; leakage buckets + primary_cause (dates for timing/capture); Coupa invoice slice; map_inv_sap_coupa; sap_ref_key on fct_inv_sap.
