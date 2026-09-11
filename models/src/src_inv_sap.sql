@@ -13,7 +13,11 @@ with raw as (
         budat,
         bldat,
         augdt,
-        sknto
+        sknto,
+        payblk_clr,
+        disp_clr,
+        mgrblk_clr,
+        nosknt_clr
     from {{ ref('raw_inv_sap') }}
 
 ),
@@ -34,7 +38,23 @@ renamed as (
         cast(budat as date) as posting_date,
         cast(bldat as date) as document_date,
         cast(nullif(trim(augdt), '') as date) as clearing_date,
-        cast(nullif(trim(sknto), '') as number(18, 2)) as discount_taken_amount
+        cast(nullif(trim(sknto), '') as number(18, 2)) as discount_taken_amount,
+        case
+            when nullif(trim(augdt), '') is null then null
+            else coalesce(upper(nullif(trim(payblk_clr), '')) in ('X', 'TRUE', '1'), false)
+        end as payment_block_at_clearing,
+        case
+            when nullif(trim(augdt), '') is null then null
+            else coalesce(upper(nullif(trim(disp_clr), '')) in ('X', 'TRUE', '1'), false)
+        end as dispute_open_at_clearing,
+        case
+            when nullif(trim(augdt), '') is null then null
+            else coalesce(upper(nullif(trim(mgrblk_clr), '')) in ('X', 'TRUE', '1'), false)
+        end as match_or_gr_block_at_clearing,
+        case
+            when nullif(trim(augdt), '') is null then null
+            else coalesce(upper(nullif(trim(nosknt_clr), '')) in ('X', 'TRUE', '1'), false)
+        end as do_not_take_skonto_at_clearing
     from raw
 
 )
@@ -53,6 +73,9 @@ select
     posting_date,
     document_date,
     clearing_date,
-    discount_taken_amount
+    discount_taken_amount,
+    payment_block_at_clearing,
+    dispute_open_at_clearing,
+    match_or_gr_block_at_clearing,
+    do_not_take_skonto_at_clearing
 from renamed
-
