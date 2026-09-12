@@ -126,3 +126,42 @@ models:
                 values: [true, false]
               config:
                 where: "is_kpi_entitled and not is_taken"
+      - name: is_leakage
+        description: >
+          KPI funnel LEAKAGE node. True when is_kpi_entitled, not is_taken,
+          and not is_excluded. False on other eligible rows; null when not
+          is_kpi_entitled or is_taken.
+        tests:
+          - not_null:
+              config:
+                where: "is_kpi_entitled and not is_taken"
+          - accepted_values:
+              arguments:
+                values: [true, false]
+              config:
+                where: "is_kpi_entitled and not is_taken"
+
+      - name: lost_discount_amount
+        description: >
+          Discount not captured on leakage rows
+          (discount_opportunity_amount - discount_taken_amount).
+          Null when not is_leakage.
+        tests:
+          - not_null:
+              config:
+                where: "is_leakage"
+
+      - name: primary_cause
+        description: >
+          Root-cause category on leakage rows only. timing = paid after
+          discount_deadline_date; capture = paid in window but discount not
+          taken; structural = fallback when dates cannot classify.
+        tests:
+          - not_null:
+              config:
+                where: "is_leakage"
+          - accepted_values:
+              arguments:
+                values: ['timing', 'capture', 'structural']
+              config:
+                where: "is_leakage"

@@ -148,6 +148,39 @@ with_exclusion as (
         end as is_excluded
     from with_taken wt
 
+),
+
+with_leakage as (
+    select
+        we.*,
+        case
+            when we.is_kpi_entitled
+             and not we.is_taken
+             and not we.is_excluded
+            then true
+            when we.is_kpi_entitled
+             and not we.is_taken
+            then false
+        end as is_leakage,
+        case
+            when we.is_kpi_entitled
+             and not we.is_taken
+             and not we.is_excluded
+            then we.discount_opportunity_amount - coalesce(we.discount_taken_amount, 0)
+        end as lost_discount_amount,
+        case
+            when we.is_kpi_entitled
+             and not we.is_taken
+             and not we.is_excluded
+            then case
+                when we.clearing_date > we.discount_deadline_date
+                    then 'timing'
+                when we.clearing_date <= we.discount_deadline_date
+                    then 'capture'
+                else 'structural'
+            end
+        end as primary_cause
+    from with_exclusion we
 )
 
 select
@@ -178,5 +211,8 @@ select
     dispute_open_at_clearing,
     match_or_gr_block_at_clearing,
     do_not_take_skonto_at_clearing,
-    is_excluded
-from with_exclusion
+    is_excluded,
+    is_leakage,
+    lost_discount_amount,
+    primary_cause    
+from with_leakage
