@@ -24,6 +24,51 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-12 — Mart hero KPIs: mart_cash_discount_kpi
+
+Context: P1 SAP invoice funnel complete on fct_inv_sap (ENT → TAKEN → EXCLUDED → LEAKAGE). Next slice per 2026-08-24 hero metrics: leakage_eur, leakage_rate, plus funnel sanity counts/amounts for dashboard headline numbers.
+
+Decision:
+
+Mart model
+
+Model: mart_cash_discount_kpi (table, models/mart/)
+Source: {{ ref('fct_inv_sap') }} — no additional period filter; is_kpi_entitled and downstream funnel flags already scope the KPI universe to invoices paid in the reporting period (dbt vars reporting_period_start / reporting_period_end).
+Grain: one aggregate row per reporting period (period start/end as columns).
+Materialization: table (dbt_project.yml mart default).
+
+Metrics
+
+leakage_eur — sum(lost_discount_amount) where is_leakage.
+leakage_rate — leakage_eur / discount_opportunity_eur, where discount_opportunity_eur = sum(discount_opportunity_amount) where is_kpi_entitled.
+Denominator choice: amount-based (entitled discount opportunity in EUR), not invoice count. Aligns numerator (lost EUR) with denominator (available EUR on KPI-entitled rows). Count-based alternative (leakage_count / kpi_entitled_count) documented but not used for headline rate.
+
+Funnel sanity columns (counts): fct_row_count, kpi_entitled_count, taken_count, excluded_count, leakage_count.
+Funnel sanity columns (amounts): discount_opportunity_eur, realized_discount_eur (taken), excluded_opportunity_eur, leakage_eur.
+
+Period vars: same as fct_inv_sap — var('reporting_period_start', '2024-01-01'), var('reporting_period_end', '2024-12-31'). Mart echoes period bounds in output columns.
+
+Expected on current synthetic data (period 2024, default vars)
+
+12 fct_row_count. 6 kpi_entitled_count. 3 taken_count. 1 excluded_count. 2 leakage_count.
+discount_opportunity_eur = 196.21. realized_discount_eur = 135.01. excluded_opportunity_eur = 30.00. leakage_eur = 31.20. leakage_rate ≈ 0.159014 (31.20 / 196.21).
+
+Deferred
+
+Dimensional mart breakdowns (vendor, company_code, primary_cause); Coupa mart or cross-system union; sap_ref_key; map_inv_sap_coupa.
+
+Tests
+
+File: models/mart/_mart__models.yml — docs + not_null on period bounds and key metrics.
+Singular test: tests/assert_mart_cash_discount_kpi_expected_values.sql — asserts funnel counts, leakage_eur = 31.20, discount_opportunity_eur = 196.21, round(leakage_rate, 4) = 0.1590.
+Optional: partition test (realized + excluded + leakage = discount_opportunity_eur).
+
+Run: dbt build --select mart_cash_discount_kpi+
+
+Why: Surfaces portfolio-ready headline KPIs without re-implementing funnel logic. Mart reads classified fact flags; single source of truth remains fct_inv_sap.
+
+Impact: P1 SAP leakage story complete end-to-end (seed → fct → mart). Next parallel tracks: Coupa invoice slice, map_inv_sap_coupa, sap_ref_key; P2+ entitlement-at-clearing snapshot.
+
 
 2026-09-12 — Leakage classification on fct_inv_sap
 
