@@ -9,3 +9,26 @@ models:
         tests:
           - unique
           - not_null
+      - name: is_active
+        description: True for all rows in dim (deleted vendors excluded).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true]
+
+  - name: dim_vendor_coupa
+    description: Coupa supplier dimension. One row per active supplier.
+    columns:
+      - name: vendor_id
+        description: Coupa supplier system id (from raw id).
+        tests:
+          - unique
+          - not_null
+      - name: is_active
+        description: True for all rows in dim (inactive suppliers excluded).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true]

@@ -165,3 +165,54 @@ models:
                 values: ['timing', 'capture', 'structural']
               config:
                 where: "is_leakage"
+
+  - name: fct_inv_coupa
+    description: >
+      Slim Coupa invoice fact. One row per in-scope invoice (document_type = Invoice).
+      No KPI funnel; period scoping lives on fct_inv_sap. Grain coupa_id.
+    columns:
+      - name: coupa_id
+        description: Coupa invoice system id.
+        tests:
+          - unique
+          - not_null
+      - name: vendor_id
+        description: Coupa supplier id. FK to dim_vendor_coupa.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_vendor_coupa')
+                field: vendor_id
+      - name: invoice_number
+        description: Supplier invoice reference for human validation and map checks.
+        tests:
+          - not_null
+      - name: status
+        description: Coupa workflow state (not used for SAP KPI buckets).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['paid', 'approved', 'disputed', 'voided']
+      - name: invoice_date
+        description: Invoice date from Coupa (process timeline anchor).
+        tests:
+          - not_null
+      - name: created_at
+        description: Coupa record created timestamp.
+        tests:
+          - not_null
+      - name: updated_at
+        description: Coupa record last updated timestamp.
+        tests:
+          - not_null
+      - name: paid
+        description: Coupa paid flag; optional reconciliation vs SAP clearing.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true, false]
+      - name: payment_date
+        description: Coupa payment date when paid; null on unpaid rows.
