@@ -24,6 +24,48 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-13 — SAP posting reference (XREF2_HD) + map_inv_sap_coupa
+Context: Coupa P1 slim slice complete (fct_inv_coupa, 14 rows). Next per 2026-08-31 architecture: cross-system match at SAP posting via sap_ref_key on fct_inv_sap and bridge table map_inv_sap_coupa. KPI authority remains SAP-only; no funnel or mart changes. Rejected BELNR-derived shortcuts — reference must live in raw SAP data as integration would stamp it.
+Decision:
+Raw (seed)
+File: seeds/raw_inv_sap.csv — added column XREF2_HD (BKPF reference key 2, header).
+Simulates Coupa → SAP integration auto-stamping Coupa invoice id at posting time (not manual AP entry).
+Populated with coupa_id for Coupa-posted documents 5100000001–5100000013 → 10001–10013.
+Empty on FB60 SAP-only orphans 5100000014, 5100000015 (no Coupa counterpart).
+KG credit note 5100000010 carries 10010 in raw/src only; excluded from fct by document_type filter.
+No XBLNR / invoice-number on SAP for map join — coupa_id is the system key.
+Src
+Model: src_inv_sap (view) — rename/cast only.
+XREF2_HD → coupa_posting_ref (varchar; nullif empty trim).
+Fct
+Model: fct_inv_sap (table) — pass-through only; no derived join logic.
+coupa_posting_ref → sap_ref_key in final select.
+Funnel CTEs unchanged. FB60 orphans: sap_ref_key null.
+Map
+Model: map_inv_sap_coupa (table, models/map/).
+Grain: (sap_inv_key, coupa_id) — 1:1, 12 rows.
+Population:
+```sql
+SELECT s.sap_inv_key, c.coupa_id
+FROM fct_inv_sap s
+INNER JOIN fct_inv_coupa c ON s.sap_ref_key = c.coupa_id
+WHERE s.sap_ref_key IS NOT NULL
+Orphans excluded from map (remain in facts only): SAP FB60: 5100000014, 5100000015. Coupa: 10014 disputed, 10015 voided. Credit note: 10010 (not in fct_inv_coupa).
+
+Expected on current synthetic data
+
+fct_inv_sap: 14 rows; 12 with sap_ref_key populated; 2 null (0014/0015). map_inv_sap_coupa: 12 rows. fct_inv_coupa: 14 rows unchanged. mart_cash_discount_kpi unchanged: funnel 6/3/1/2; leakage_eur 31.20.
+
+Tests
+
+File: models/fct/_fct__models.yml — sap_ref_key documented on fct_inv_sap. File: models/map/_map__models.yml — sap_inv_key + coupa_id unique/not_null; relationships → respective facts. Singular: assert_map_inv_sap_coupa_row_count (12), assert_map_inv_sap_coupa_sap_ref_key_matches_coupa_id, assert_map_inv_sap_coupa_orphans_absent, assert_fct_inv_sap_sap_ref_key_scenarios. SAP funnel + mart tests unchanged.
+
+Run: dbt seed --full-refresh --select raw_inv_sap && dbt build --select raw_inv_sap+ map_inv_sap_coupa+
+
+Why: Models realistic Coupa-SAP integration (automatic id stamping at post) without bypassing raw. Single join key (coupa_id); symmetric bridge without fact-to-fact FK.
+
+Impact: Cross-system invoice match complete for P1. Next: fct_inv_coupa_changes (timing drill-down). Deferred: XBLNR for supplier-ref realism, Coupa mart, Coupa pre-post in-flight, SAP parked docs, entitlement-at-clearing snapshot (P2+).
+
 2026-09-13 — Coupa vendor + slim invoice slice (seeds → src → dim / fct)
 
 Context: P1 SAP funnel + mart complete on fct_inv_sap. Next slice per 2026-08-31 architecture: Coupa = slim header + process/diagnosis only; KPI authority remains SAP. No mirrored funnel, no seed_payment_term_coupa, no exclusion-at-clearing on Coupa. Cross-system match deferred to map_inv_sap_coupa + sap_ref_key on fct_inv_sap (posting-time link).
@@ -871,6 +913,7 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | _dim__models.yml | schema | — | vendor_id + is_active tests (SAP + Coupa) |
 | _fct__models.yml | schema | — | SAP funnel tests + fct_inv_coupa slim column tests |
 | tests/ | singular | — | SAP funnel + Coupa row counts, credit note, orphans, open matched |
+| map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 12 confirmed matches; FKs to fct_inv_sap + fct_inv_coupa |
 ---
 
 ## Conventions (stable)
@@ -890,8 +933,10 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 Last updated: 2026-09-13
 
-SAP P1 complete: fct_inv_sap full funnel + mart_cash_discount_kpi (6/3/1/2, €31.20). fct_inv_sap row_count 14 (incl. FB60 orphans 5100000014/0015, sap_ref_key null when added).
+SAP P1 complete: fct_inv_sap full funnel + mart_cash_discount_kpi (6/3/1/2, €31.20). fct_inv_sap 14 rows; sap_ref_key from XREF2_HD (12 populated, FB60 orphans 0014/0015 null).
 
-Coupa P1 complete: raw_vendor_coupa → src_vendor_coupa → dim_vendor_coupa (6 active); raw_inv_coupa → src_inv_coupa → fct_inv_coupa (14 slim rows). Credit note 10010 src only. Coupa orphans 10014 disputed, 10015 voided (no SAP). Match at SAP posting (not Coupa create); no in-flight Coupa-only approved rows in P1.
+Coupa P1 complete: dim_vendor_coupa (6 active); fct_inv_coupa (14 slim rows). Credit note 10010 src only. Coupa orphans 10014/10015 (no SAP).
 
-Next: sap_ref_key on fct_inv_sap; map_inv_sap_coupa; fct_inv_coupa_changes. Deferred P2+: entitlement-at-clearing snapshot; Coupa pre-post in-flight; SAP parked docs.
+Map P1 complete: map_inv_sap_coupa 12 rows (sap_ref_key = coupa_id at posting). Cross-system join via map only.
+
+Next: fct_inv_coupa_changes. Deferred P2+: entitlement-at-clearing snapshot; Coupa pre-post in-flight; SAP parked docs; XBLNR on SAP.
