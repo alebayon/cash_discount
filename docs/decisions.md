@@ -24,6 +24,87 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-13 — Coupa vendor + slim invoice slice (seeds → src → dim / fct)
+
+Context: P1 SAP funnel + mart complete on fct_inv_sap. Next slice per 2026-08-31 architecture: Coupa = slim header + process/diagnosis only; KPI authority remains SAP. No mirrored funnel, no seed_payment_term_coupa, no exclusion-at-clearing on Coupa. Cross-system match deferred to map_inv_sap_coupa + sap_ref_key on fct_inv_sap (posting-time link).
+
+Decision:
+
+Architecture (Coupa vs SAP)
+
+KPI universe, entitlement, taken, excluded, leakage, mart KPIs: fct_inv_sap only.
+fct_inv_coupa: slim header columns for workflow state and latency analysis; join to SAP later via map.
+No reporting_period vars on Coupa models — period scoping lives on SAP (is_kpi_entitled, mart vars).
+Cross-system match established at SAP posting (sap_ref_key = coupa_id when column added), not at Coupa creation.
+P1 out of scope: Coupa approved awaiting SAP post (in-flight, not disputed/voided); SAP parked documents.
+
+Raw (seeds)
+
+Files: seeds/raw_vendor_coupa.csv, seeds/raw_inv_coupa.csv
+Coupa API-style hyphenated column names in CSV (supplier-id, invoice-date, created-at, document-type, …).
+seeds/_seeds.yml: quote_columns: true on both Coupa seeds (Snowflake requires quoted identifiers in src SQL).
+
+Vendor seed: 7 suppliers (ids 9000001–9000007), mirroring SAP LIFNR 0000100001–0000100007 names/countries; 9000005 inactive.
+
+Invoice seed: 15 rows in raw/src; scenario matrix:
+
+| Bucket | coupa_ids | In fct | SAP counterpart |
+|--------|-----------|--------|-----------------|
+| Matched + paid | 10001–10004, 10007–10008, 10011–10013 (9) | Yes | 5100000001–0004, 0007–0008, 0011–0013 |
+| Matched + approved/unpaid | 10005, 10006, 10009 (3) | Yes | 5100000005, 0006, 0009 (open KR) |
+| Credit note | 10010 | No | 5100000010 (KG, src only on SAP) |
+| Coupa orphan — disputed | 10014 | Yes | None (never posted) |
+| Coupa orphan — voided | 10015 | Yes | None (cancelled before post) |
+| SAP FB60 orphan | — | No Coupa row | 5100000014, 5100000015 |
+
+invoice-number uses realistic supplier references (INV-5100000xxx aligned to SAP BELNR for map validation; INV-5100000014 / INV-5100000015 for Coupa-only orphans). Status encoded in status column only — not in invoice-number.
+
+Src
+
+Model: src_vendor_coupa (view) — rename/cast only from raw; quote all hyphenated raw columns.
+id → vendor_id; name → vendor_name; country-code → country_code; postal-code → postal_code; created-at → created_at (timestamp_ntz).
+
+Model: src_inv_coupa (view) — rename/cast only; all document types retained (including credit note).
+id → coupa_id; supplier-id → vendor_id; invoice-number → invoice_number; invoice-date → invoice_date; created-at / updated-at → timestamps; paid → boolean; payment-date → payment_date; document-type → document_type.
+No business filters in src.
+
+Dim
+
+Model: dim_vendor_coupa (table) — mirror dim_vendor_sap pattern.
+Grain: one row per active vendor_id. Dedupe on vendor_id (latest created_at). Filter status = 'active' (excludes 9000005). is_active = true on all dim rows.
+Output: 6 rows.
+
+Fct
+
+Model: fct_inv_coupa (table) — slim columns only.
+Source: {{ ref('src_inv_coupa') }}.
+Population filter (P1 is_invoice): document_type = 'Invoice' and vendor_id is not null. Credit note excluded (src only).
+Output columns: coupa_id, vendor_id, invoice_number, status, invoice_date, created_at, updated_at, paid, payment_date.
+Not on fct_inv_coupa (P1): discount fields, payment terms, exclusion *_at_clearing, is_kpi_entitled / is_taken / is_excluded / is_leakage, seed_payment_term_coupa.
+Output: 14 rows.
+
+Expected on current synthetic data
+
+dim_vendor_coupa: 6 active suppliers.
+src_inv_coupa: 15 rows. fct_inv_coupa: 14 rows.
+fct_inv_sap / mart_cash_discount_kpi unchanged: 14 fct rows; funnel 6/3/1/2; leakage_eur 31.20.
+
+Tests
+
+File: models/dim/_dim__models.yml — dim_vendor_sap + dim_vendor_coupa: vendor_id unique/not_null; is_active not_null + accepted_values [true].
+File: models/fct/_fct__models.yml — fct_inv_coupa: coupa_id unique/not_null; vendor_id not_null + relationships → dim_vendor_coupa; status accepted_values (paid, approved, disputed, voided); paid not_null.
+Singular tests in tests/: assert_dim_vendor_coupa_active_count (6), assert_fct_inv_coupa_row_count (14), assert_fct_inv_coupa_excludes_credit_note, assert_fct_inv_coupa_orphan_scenarios (10014 disputed, 10015 voided), assert_fct_inv_coupa_open_matched_scenarios (10005, 10006, 10009).
+
+Run: dbt seed --full-refresh --select raw_vendor_coupa raw_inv_coupa && dbt build --select raw_vendor_coupa+ raw_inv_coupa+
+
+Why: Delivers Coupa process/diagnosis layer without duplicating SAP KPI logic. Keeps raw Coupa API field names; src renames once; fct holds in-scope invoice grain only.
+
+Impact: Coupa vendor + invoice lineage complete for P1. Next: sap_ref_key on fct_inv_sap; map_inv_sap_coupa; fct_inv_coupa_changes (timing drill-down). Deferred: Coupa mart, seed_payment_term_coupa, Coupa in-flight pre-post rows, SAP parked docs.
+
+2026-09-13 — Coupa scope design
+
+Cross-system match is established at SAP posting (sap_ref_key = coupa_id), not at Coupa creation. Open matched pairs (Coupa approved + SAP KR without clearing) are valid map rows. Coupa-only in-flight (approved, not yet posted) and SAP parked documents are out of P1 scope; timing analysis deferred to fct_inv_coupa_changes.
+
 2026-09-13 — SAP-only orphan invoices (direct FI posting / FB60)
 
 Context: Before Coupa slice and map_inv_sap_coupa. Need labeled SAP invoices that never existed in Coupa (sap_ref_key null, no map row). Real pattern: manual FI vendor invoice (FB60) bypasses Coupa intake. KPI funnel remains SAP-centric; orphans must not disturb hero leakage counts.
@@ -776,15 +857,20 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | raw_vendor_sap | seed | one row per vendor | SAP LFA1 names; 7 rows in CSV |
 | src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
-| _dim__models.yml | schema | — | unique + not_null on vendor_id |
 | src_smoke_test | src (view) | — | Connection smoke test |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030; 2 rows | Update fct_inv_sap note: 11 rows; discount_pct, discount_deadline_date, is_entitled, not_entitled_reason
 | raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 13 rows; AUGDT, SKNTO, PAYBLK_CLR, DISP_CLR, MGRBLK_CLR, NOSKNT_CLR |
 | src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; clearing_date, discount_taken_amount, four *_at_clearing flags |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 12 rows; full P1 funnel: is_kpi_entitled, is_taken, is_excluded, is_leakage, lost_discount_amount, primary_cause |
-| _fct__models.yml | schema | — | PK/FK tests; funnel column not_null/accepted_values through is_leakage, lost_discount_amount, primary_cause |
-| tests/ | singular | — | KPI funnel counts, is_taken, is_excluded, is_leakage scope + seed scenarios |
-
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 14 rows; full P1 funnel: is_kpi_entitled, is_taken, is_excluded, is_leakage, lost_discount_amount, primary_cause |
+| raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
+| src_vendor_coupa | src (view) | one row per supplier | Rename + cast; includes inactive |
+| dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows; is_active |
+| raw_inv_coupa | seed | one row per invoice doc | 15 rows; quote_columns |
+| src_inv_coupa | src (view) | one row per invoice doc | All doc types incl. credit note |
+| fct_inv_coupa | fct (table) | one row per Coupa invoice | 14 rows; slim header; no KPI funnel |
+| _dim__models.yml | schema | — | vendor_id + is_active tests (SAP + Coupa) |
+| _fct__models.yml | schema | — | SAP funnel tests + fct_inv_coupa slim column tests |
+| tests/ | singular | — | SAP funnel + Coupa row counts, credit note, orphans, open matched |
 ---
 
 ## Conventions (stable)
@@ -802,10 +888,10 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-12
+Last updated: 2026-09-13
 
-SAP vendor + invoice + payment-terms + clearing + taken + exclusion + leakage slices complete.
+SAP P1 complete: fct_inv_sap full funnel + mart_cash_discount_kpi (6/3/1/2, €31.20). fct_inv_sap row_count 14 (incl. FB60 orphans 5100000014/0015, sap_ref_key null when added).
 
-Lineage: raw_inv_sap → src_inv_sap → fct_inv_sap (full P1 funnel: is_kpi_entitled, is_taken, is_excluded, is_leakage, lost_discount_amount, primary_cause). Period defaults: 2024-01-01 .. 2024-12-31. Expected: 8 is_entitled, 6 is_kpi_entitled, 3 is_taken, 1 is_excluded, 2 is_leakage (0003 timing, 0012 capture), €31.20 total lost discount.
+Coupa P1 complete: raw_vendor_coupa → src_vendor_coupa → dim_vendor_coupa (6 active); raw_inv_coupa → src_inv_coupa → fct_inv_coupa (14 slim rows). Credit note 10010 src only. Coupa orphans 10014 disputed, 10015 voided (no SAP). Match at SAP posting (not Coupa create); no in-flight Coupa-only approved rows in P1.
 
-Next: Coupa invoice slice; map_inv_sap_coupa; sap_ref_key; mart KPIs (leakage_eur, leakage_rate). Deferred P2+: entitlement-at-clearing snapshot (baseline_date, payment_terms).
+Next: sap_ref_key on fct_inv_sap; map_inv_sap_coupa; fct_inv_coupa_changes. Deferred P2+: entitlement-at-clearing snapshot; Coupa pre-post in-flight; SAP parked docs.
