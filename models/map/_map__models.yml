@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: map_inv_sap_coupa
+    description: >
+      Confirmed SAP-Coupa invoice matches at SAP posting time.
+      Grain (sap_inv_key, coupa_id). Orphans stay in facts only.
+    columns:
+      - name: sap_inv_key
+        description: SAP invoice composite key. FK to fct_inv_sap.
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_inv_sap')
+                field: sap_inv_key
+      - name: coupa_id
+        description: Coupa invoice system id. FK to fct_inv_coupa.
+        tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_inv_coupa')
+                field: coupa_id

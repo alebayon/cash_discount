@@ -111,6 +111,12 @@ models:
           - not_null:
               config:
                 where: "is_cleared"
+      - name: sap_ref_key
+        description: >
+          Coupa invoice id stamped on SAP at posting (BKPF XREF2_HD).
+          Populated by integration for Coupa-posted documents; null on
+          SAP-only paths (e.g. FB60). Used to build map_inv_sap_coupa;
+          not an FK.                
 
       - name: is_excluded
         description: >

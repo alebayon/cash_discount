@@ -17,7 +17,8 @@ with raw as (
         payblk_clr,
         disp_clr,
         mgrblk_clr,
-        nosknt_clr
+        nosknt_clr,
+        xref2_hd
     from {{ ref('raw_inv_sap') }}
 
 ),
@@ -54,7 +55,8 @@ renamed as (
         case
             when nullif(trim(augdt), '') is null then null
             else coalesce(upper(nullif(trim(nosknt_clr), '')) in ('X', 'TRUE', '1'), false)
-        end as do_not_take_skonto_at_clearing
+        end as do_not_take_skonto_at_clearing,
+        nullif(trim(xref2_hd), '') as coupa_posting_ref
     from raw
 
 )
@@ -77,5 +79,6 @@ select
     payment_block_at_clearing,
     dispute_open_at_clearing,
     match_or_gr_block_at_clearing,
-    do_not_take_skonto_at_clearing
+    do_not_take_skonto_at_clearing,
+    coupa_posting_ref
 from renamed

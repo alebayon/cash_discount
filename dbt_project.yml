@@ -27,5 +27,7 @@ models:
       +materialized: table
     fct:
       +materialized: table
+    map:
+      +materialized: table
     mart:
       +materialized: table

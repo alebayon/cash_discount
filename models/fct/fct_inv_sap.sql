@@ -21,7 +21,8 @@ with src as (
         payment_block_at_clearing,
         dispute_open_at_clearing,
         match_or_gr_block_at_clearing,
-        do_not_take_skonto_at_clearing
+        do_not_take_skonto_at_clearing,
+        coupa_posting_ref
     from {{ ref('src_inv_sap') }}
 
 ),
@@ -46,7 +47,8 @@ invoices as (
         payment_block_at_clearing,
         dispute_open_at_clearing,
         match_or_gr_block_at_clearing,
-        do_not_take_skonto_at_clearing
+        do_not_take_skonto_at_clearing,
+        coupa_posting_ref
     from src
     where document_type = 'KR'
       and vendor_id is not null
@@ -211,6 +213,7 @@ select
     dispute_open_at_clearing,
     match_or_gr_block_at_clearing,
     do_not_take_skonto_at_clearing,
+    coupa_posting_ref as sap_ref_key,
     is_excluded,
     is_leakage,
     lost_discount_amount,
