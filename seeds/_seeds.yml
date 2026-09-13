@@ -6,3 +6,9 @@ seeds:
         tests:
           - unique
           - not_null
+  - name: raw_inv_coupa
+    config:
+      quote_columns: true
+  - name: raw_vendor_coupa
+    config:
+      quote_columns: true

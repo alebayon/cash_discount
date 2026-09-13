@@ -24,6 +24,49 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-13 — SAP-only orphan invoices (direct FI posting / FB60)
+
+Context: Before Coupa slice and map_inv_sap_coupa. Need labeled SAP invoices that never existed in Coupa (sap_ref_key null, no map row). Real pattern: manual FI vendor invoice (FB60) bypasses Coupa intake. KPI funnel remains SAP-centric; orphans must not disturb hero leakage counts.
+
+Decision:
+
+Raw (seed)
+
+File: seeds/raw_inv_sap.csv — added 2 KR rows:
+
+| BELNR | Role | ZTERM | ZFBDT | AUGDT (2024) | not_entitled_reason |
+|-------|------|-------|-------|--------------|---------------------|
+| 5100000014 | FB60 direct posting — net-only utility/legal | N030 | present | 2024-09-28 | no_discount_terms |
+| 5100000015 | FB60 direct posting — rush manual entry, no baseline | Z210 | empty | 2024-10-18 | no_baseline_date |
+
+Both: active vendors (0000100004, 0000100007), SKNTO = 0.00, no exclusion snapshot flags. Z210 on 0015 uses existing seed_payment_term_sap; entitlement fails on missing baseline first.
+
+Fct behavior
+
+Model: fct_inv_sap — same P1 filters (KR, vendor_id not null). Both rows in fct (is_invoice = true).
+
+is_cleared / is_paid_in_period: true (paid in default reporting period 2024).
+
+is_entitled: false on both. is_kpi_entitled: false — outside ENT/TAKEN/EXCLUDED/LEAKAGE universe (funnel flags null).
+
+sap_ref_key: null when column added (no Coupa counterpart).
+
+Map: no rows for these sap_inv_key values.
+
+Expected after seed add (period 2024, default vars)
+
+fct_inv_sap row_count: 14 (was 12). is_entitled: 8 unchanged. is_kpi_entitled: 6 unchanged. taken: 3, excluded: 1, leakage: 2, leakage_eur: 31.20 unchanged.
+
+Tests
+
+Update row_count only: tests/assert_fct_inv_sap_kpi_funnel_counts.sql (12 → 14), tests/assert_mart_cash_discount_kpi_expected_values.sql (fct_row_count 12 → 14). Funnel node counts and mart amounts unchanged.
+
+Run: dbt seed --full-refresh --select raw_inv_sap && dbt build --select raw_inv_sap+ fct_inv_sap mart_cash_discount_kpi+
+
+Why: Documents realistic SAP-only AP path without Coupa processing. Keeps leakage KPI stable while map slice can assume most other KR rows will later carry sap_ref_key.
+
+Impact: Next: slim Coupa invoice slice + map_inv_sap_coupa; disputed/voided Coupa orphans (no SAP). Deferred: third SAP-only pattern (EDI), sap_ref_key column on fct_inv_sap.
+
 2026-09-12 — Mart hero KPIs: mart_cash_discount_kpi
 
 Context: P1 SAP invoice funnel complete on fct_inv_sap (ENT → TAKEN → EXCLUDED → LEAKAGE). Next slice per 2026-08-24 hero metrics: leakage_eur, leakage_rate, plus funnel sanity counts/amounts for dashboard headline numbers.

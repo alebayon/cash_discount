@@ -1,0 +1,8 @@
+id,name,country-code,city,postal-code,status,created-at
+9000001,Acme Supplies GmbH,DE,Berlin,10115,active,2024-01-15T08:00:00Z
+9000002,Global Parts AG,DE,Munich,80331,active,2024-02-01T08:00:00Z
+9000003,Nordic Logistics AB,SE,Stockholm,11122,active,2024-03-10T08:00:00Z
+9000004,FastPay Services Ltd,GB,London,EC1A1BB,active,2024-04-05T08:00:00Z
+9000005,Legacy Vendor Co,DE,Hamburg,20095,inactive,2023-06-01T08:00:00Z
+9000006,Precision Tools SA,FR,Lyon,69001,active,2024-05-20T08:00:00Z
+9000007,Budget Office BV,NL,Amsterdam,1012AB,active,2024-06-12T08:00:00Z
