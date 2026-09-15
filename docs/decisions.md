@@ -17,7 +17,6 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Move items to "Decisions" once resolved -->
 - Entitlement-at-clearing snapshot (baseline_date, payment_terms at clearing) — P2+ if retroactive entitlement changes on rebuild become a concern; not in P1 exclusion slice.
-- Calibrate and source minimum_cycle_days and standard_cycle_days, including appropriate invoice segmentation and benchmark governance.
 - Map the production source for receipt_date. Version 5 intentionally keeps one receipt anchor and defers submission/technical-receipt/AP-seen breakdown.
 - Wrong-clock attribution remains deferred until an authoritative contractual baseline or actual AP target deadline is available.
 
@@ -210,11 +209,34 @@ A future wrong_clock_confirmed flag requires evidence that the ERP baseline or A
 
 Implementation status
 
-Design accepted; not yet implemented.
+**Implemented in `fct_inv_sap` (2026-09-15).**
 
-This decision supersedes only the primary_cause attribution documented on 2026-09-12. The existing leakage formula, amounts, KPI funnel, SAP KPI authority, and current production model remain unchanged until Version 5 is implemented.
+P1 implementation choices:
 
-Implementation will require receipt_date, minimum_cycle_days, and standard_cycle_days; updated primary-cause documentation and accepted-value tests; and labeled scenarios covering every outcome and boundary.
+- **contractual_deadline_date:** implemented as existing column `discount_deadline_date` (baseline_date + discount_days). No rename in P1.
+- **receipt_date:** `fct_inv_coupa.created_at::date`, joined on `sap_ref_key = coupa_id`. Null on SAP-only rows (5100000014, 5100000015). Leakage without receipt → `data_quality_error`.
+- **discount_days:** passed through from `seed_payment_term_sap` in `with_terms`.
+- **minimum_cycle_days / standard_cycle_days:** flat dbt vars in `fct_inv_sap` — **5** and **10** calendar days. Segmentation and benchmark governance deferred.
+- **Day convention:** calendar days throughout (`datediff('day', …)`).
+- **CTE chain:** … → with_exclusion → with_receipt → with_cycle_benchmarks → with_leakage_diagnostics → with_primary_cause → with_leakage.
+- **Columns added:** receipt_date, discount_days, minimum_cycle_days, standard_cycle_days, available_days, actual_cycle_days, operational_deadline_date, primary_cause_group, is_still_feasible, requires_expedited_processing, is_timing_contributor. `primary_cause` uses Version 5 detailed buckets.
+
+Expected on current synthetic data (unchanged funnel):
+
+- Funnel: 6 kpi_entitled / 3 taken / 1 excluded / 2 leakage / leakage_eur 31.20.
+- 5100000003 → primary_cause `timing`, primary_cause_group `timing`.
+- 5100000012 → primary_cause `capture`, primary_cause_group `capture`; secondary flags null.
+- Structural sub-buckets and `data_quality_error` on leakage: **not yet covered by seed scenarios** — deferred to seed expansion.
+
+Deferred:
+
+- Timing sub-buckets (Coupa phase breakdown).
+- wrong_clock_confirmed.
+- Benchmark seed table / segmentation by invoice type.
+- Production receipt_date source mapping.
+- Mart dimensional breakdown by cause.
+
+Run: `dbt build --select fct_inv_coupa fct_inv_sap+` then `dbt test --select fct_inv_sap`.
 
 2026-09-13 — SAP posting reference (XREF2_HD) + map_inv_sap_coupa
 Context: Coupa P1 slim slice complete (fct_inv_coupa, 14 rows). Next per 2026-08-31 architecture: cross-system match at SAP posting via sap_ref_key on fct_inv_sap and bridge table map_inv_sap_coupa. KPI authority remains SAP-only; no funnel or mart changes. Rejected BELNR-derived shortcuts — reference must live in raw SAP data as integration would stamp it.
@@ -1103,7 +1125,7 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030; 2 rows | Update fct_inv_sap note: 11 rows; discount_pct, discount_deadline_date, is_entitled, not_entitled_reason
 | raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 13 rows; AUGDT, SKNTO, PAYBLK_CLR, DISP_CLR, MGRBLK_CLR, NOSKNT_CLR |
 | src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; clearing_date, discount_taken_amount, four *_at_clearing flags |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 14 rows; full P1 funnel: is_kpi_entitled, is_taken, is_excluded, is_leakage, lost_discount_amount, primary_cause |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 14 rows; P1 funnel + Version 5 root-cause: receipt_date, discount_days, cycle benchmarks (5/10), diagnostics, primary_cause (6 buckets), primary_cause_group, secondary flags
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
 | src_vendor_coupa | src (view) | one row per supplier | Rename + cast; includes inactive |
 | dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows; is_active |
@@ -1131,6 +1153,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-14
+Last updated: 2026-09-15
 
-Root-cause Version 5 design accepted but not yet implemented. It introduces minimum and standard cycle benchmarks, insufficient/compressed intake buckets, and is_still_feasible, requires_expedited_processing, and is_timing_contributor flags. Existing leakage KPIs remain unchanged.
+Version 5 root-cause waterfall implemented on fct_inv_sap. Benchmarks: minimum_cycle_days=5, standard_cycle_days=10 (calendar). receipt_date from Coupa created_at via sap_ref_key. Funnel and mart KPIs unchanged (6/3/1/2, leakage_eur 31.20). Heroes: 0003 timing, 0012 capture, 0013 excluded. Next: extend seeds for structural sub-buckets, data_quality_error, and boundary scenarios; timing sub-buckets still deferred.
