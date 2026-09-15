@@ -168,9 +168,62 @@ models:
                 where: "is_leakage"
           - accepted_values:
               arguments:
-                values: ['timing', 'capture', 'structural']
+                values:
+                  - data_quality_error
+                  - capture
+                  - structural_terms_vs_capability
+                  - structural_insufficient_time_at_intake
+                  - structural_compressed_intake
+                  - timing
               config:
                 where: "is_leakage"
+
+      - name: primary_cause_group
+        description: >
+          Broad roll-up of primary_cause on leakage rows.
+          structural_* → structural; data_quality_error → unclassified.
+        tests:
+          - not_null:
+              config:
+                where: "is_leakage"
+          - accepted_values:
+              arguments:
+                values: ['capture', 'structural', 'timing', 'unclassified']
+              config:
+                where: "is_leakage"
+
+      - name: is_still_feasible
+        description: >
+          Leakage rows only. True when available_days >= minimum_cycle_days at intake.
+          Null on non-leakage, capture, and data_quality_error rows.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [true, false]
+              config:
+                where: "is_leakage and primary_cause not in ('capture', 'data_quality_error')"
+
+      - name: requires_expedited_processing
+        description: >
+          Leakage rows only. True when intake allowed expedite band
+          (minimum <= available_days < standard). Null on capture and data_quality_error.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [true, false]
+              config:
+                where: "is_leakage and primary_cause not in ('capture', 'data_quality_error')"
+
+      - name: is_timing_contributor
+        description: >
+          Leakage rows only. True when paid after deadline and actual_cycle_days
+          exceeded standard. Null on capture and data_quality_error.
+        tests:
+          - accepted_values:
+              arguments:
+                values: [true, false]
+              config:
+                where: "is_leakage and primary_cause not in ('capture', 'data_quality_error')"
 
   - name: fct_inv_coupa
     description: >

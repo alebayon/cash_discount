@@ -17,12 +17,204 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Move items to "Decisions" once resolved -->
 - Entitlement-at-clearing snapshot (baseline_date, payment_terms at clearing) — P2+ if retroactive entitlement changes on rebuild become a concern; not in P1 exclusion slice.
+- Calibrate and source minimum_cycle_days and standard_cycle_days, including appropriate invoice segmentation and benchmark governance.
+- Map the production source for receipt_date. Version 5 intentionally keeps one receipt anchor and defers submission/technical-receipt/AP-seen breakdown.
+- Wrong-clock attribution remains deferred until an authoritative contractual baseline or actual AP target deadline is available.
 
 ---
 
 ## Decisions
 
 <!-- Copy this block for each new decision -->
+
+2026-09-14 — Leakage root-cause waterfall Version 5
+
+Context:
+
+The 2026-09-12 P1 implementation classified leakage only as capture when paid within the discount deadline and timing when paid afterward, with structural as a defensive fallback. That attribution was provisional.
+
+Version 4 introduced receipt-relative structural diagnosis, but defined the operational window as receipt_date + discount_days. This produced a “long-terms loophole”: generous contractual terms could give AP an unrealistically long operational allowance.
+
+Decision:
+
+Scope
+
+This waterfall applies only after an invoice is confirmed as leakage:
+
+is_leakage = is_kpi_entitled AND NOT is_taken AND NOT is_excluded
+
+It does not change leakage eligibility, lost_discount_amount, funnel counts, leakage_eur, or leakage_rate. It only refines root-cause attribution.
+
+The existing leakage funnel remains:
+
+ENTITLED → TAKEN → EXCLUDED → LEAKAGE
+
+Version 5 is a root-cause waterfall after LEAKAGE, not a replacement funnel.
+
+Definitions
+
+contractual_deadline_date:
+The existing discount_deadline_date. Derived from baseline_date + discount_days.
+
+receipt_date:
+The single authoritative intake timestamp used by Version 5. Supplier submission, technical receipt, AP availability, and first-touch timestamps are not separated yet. Therefore, receipt_date alone must not be treated as proof of vendor responsibility.
+
+discount_days:
+Contractual discount-window duration.
+
+minimum_cycle_days:
+The defensible absolute minimum elapsed time required to complete processing under expedited conditions. This must not be based on a single fastest historical outlier.
+
+standard_cycle_days:
+The sustainable, reasonably expected elapsed processing cycle under normal operations. This represents the standard required lead time or agreed operational SLA, not an unfiltered historical average.
+
+available_days:
+datediff('day', receipt_date, contractual_deadline_date)
+
+actual_cycle_days:
+datediff('day', receipt_date, clearing_date)
+
+If operational_deadline_date is materialized for reporting, it is:
+
+receipt_date + standard_cycle_days
+
+It is no longer receipt_date + discount_days.
+
+minimum_cycle_days, standard_cycle_days, discount_days, available_days, and actual_cycle_days must use the same calendar convention and unit. Benchmark values and segmentation are implementation follow-ups.
+
+Benchmark constraints:
+
+minimum_cycle_days > 0
+standard_cycle_days >= minimum_cycle_days
+discount_days > 0
+
+Ordered root-cause logic
+
+Apply the following CASE only to leakage rows:
+
+CASE
+    -- Rule 0: Data quality
+    WHEN receipt_date IS NULL
+      OR clearing_date IS NULL
+      OR contractual_deadline_date IS NULL
+      OR discount_days IS NULL
+      OR minimum_cycle_days IS NULL
+      OR standard_cycle_days IS NULL
+      OR discount_days <= 0
+      OR minimum_cycle_days <= 0
+      OR standard_cycle_days < minimum_cycle_days
+      OR receipt_date > clearing_date
+        THEN 'data_quality_error'
+
+    -- Rule 1: Capture failure
+    -- The discount was contractually available at clearing, but was not taken.
+    WHEN clearing_date <= contractual_deadline_date
+        THEN 'capture'
+
+    -- Rule 2: Structural — terms vs capability
+    -- Contractual terms do not provide the standard required processing time.
+    WHEN discount_days < standard_cycle_days
+        THEN 'structural_terms_vs_capability'
+
+    -- Rule 3: Structural — insufficient time at intake
+    -- The remaining time was below the absolute expedited minimum.
+    WHEN datediff('day', receipt_date, contractual_deadline_date)
+         < minimum_cycle_days
+        THEN 'structural_insufficient_time_at_intake'
+
+    -- Rule 4: Structural — compressed intake
+    -- The invoice remained feasible, but required expedited processing.
+    -- Rule 3 already guarantees available_days >= minimum_cycle_days.
+    WHEN datediff('day', receipt_date, contractual_deadline_date)
+         < standard_cycle_days
+        THEN 'structural_compressed_intake'
+
+    -- Rule 5: Timing / execution
+    -- Standard processing time was available, but the deadline was missed.
+    ELSE 'timing'
+END
+
+Boundary rules
+
+available_days < minimum_cycle_days:
+Physically infeasible under the defined benchmark.
+
+minimum_cycle_days <= available_days < standard_cycle_days:
+Feasible only through acceleration or expedited processing.
+
+available_days >= standard_cycle_days:
+Standard processing time was available. A missed contractual deadline is timing/execution.
+
+Equality with standard_cycle_days belongs to timing because the complete standard lead time was available.
+
+Rule precedence intentionally assigns one primary cause. Other conditions may still be recorded as contributors; the primary bucket is not a claim that no secondary contributor existed.
+
+Secondary flags
+
+For valid leakage rows that missed the contractual deadline:
+
+is_still_feasible =
+    available_days >= minimum_cycle_days
+
+requires_expedited_processing =
+    available_days >= minimum_cycle_days
+    AND available_days < standard_cycle_days
+
+is_timing_contributor =
+    clearing_date > contractual_deadline_date
+    AND actual_cycle_days > standard_cycle_days
+
+The flags are NULL on data-quality rows, non-leakage rows, and capture rows.
+
+is_still_feasible means feasible at receipt, not feasible at the current date.
+
+requires_expedited_processing identifies invoices that could still have succeeded at receipt, but not through the normal processing cycle.
+
+is_timing_contributor identifies structural cases where AP also exceeded its standard cycle. It does not replace the ordered primary cause.
+
+Cause roll-up
+
+Detailed outcomes roll up to the existing broad taxonomy:
+
+capture → capture
+structural_* → structural
+timing → timing
+data_quality_error → unclassified
+
+Responsibility interpretation
+
+capture:
+Payment execution or discount-capture process.
+
+structural_terms_vs_capability:
+Procurement/contracts ownership. If discount_days is below minimum_cycle_days, the terms are physically infeasible. If it is between minimum and standard, the terms require non-standard acceleration.
+
+structural_insufficient_time_at_intake:
+Upstream intake ownership. Vendor responsibility may only be assigned when submission timestamps or contractual evidence support it.
+
+structural_compressed_intake:
+Shared-risk warning. Upstream intake failed to provide standard lead time, while AP still had an expedite opportunity.
+
+timing:
+Internal AP/process execution, to be broken down in a later timing-attribution phase.
+
+Use accountability/ownership language rather than asserting blame where source evidence is unavailable.
+
+Wrong clock
+
+Wrong clock is removed from the date-derived primary bucket list.
+
+A difference between baseline_date and receipt_date does not prove that the clock was wrong. It may represent supplier transmission, mailroom handling, integration latency, or a contractually correct invoice-date baseline.
+
+A future wrong_clock_confirmed flag requires evidence that the ERP baseline or AP target deadline contradicted the authoritative contract or approved policy. Until that evidence exists, Rules 3 and 4 describe the observable intake condition without assigning a wrong-clock cause.
+
+Implementation status
+
+Design accepted; not yet implemented.
+
+This decision supersedes only the primary_cause attribution documented on 2026-09-12. The existing leakage formula, amounts, KPI funnel, SAP KPI authority, and current production model remain unchanged until Version 5 is implemented.
+
+Implementation will require receipt_date, minimum_cycle_days, and standard_cycle_days; updated primary-cause documentation and accepted-value tests; and labeled scenarios covering every outcome and boundary.
 
 2026-09-13 — SAP posting reference (XREF2_HD) + map_inv_sap_coupa
 Context: Coupa P1 slim slice complete (fct_inv_coupa, 14 rows). Next per 2026-08-31 architecture: cross-system match at SAP posting via sap_ref_key on fct_inv_sap and bridge table map_inv_sap_coupa. KPI authority remains SAP-only; no funnel or mart changes. Rejected BELNR-derived shortcuts — reference must live in raw SAP data as integration would stamp it.
@@ -237,6 +429,10 @@ Impact: P1 SAP leakage story complete end-to-end (seed → fct → mart). Next p
 
 
 2026-09-12 — Leakage classification on fct_inv_sap
+
+Supersession note (2026-09-14):
+
+The leakage formula, lost_discount_amount, and KPI results in this entry remain current. The date-only primary_cause attribution and its accepted values were provisional and are superseded at the design level by the 2026-09-14 Version 5 root-cause waterfall. The existing SQL continues to represent the implemented P1 state until Version 5 is implemented.
 
 Context: Next slice after is_excluded. Implements KPI funnel LEAKAGE node per 2026-08-24. Completes P1 SAP invoice leakage funnel: ENT → TAKEN → EXCLUDED → LEAKAGE. Dates used only for primary_cause attribution (timing vs capture), not for is_taken or is_excluded. No seed changes — labeled scenarios already in raw_inv_sap (0003 timing, 0012 capture, 0013 excluded).
 
@@ -845,6 +1041,10 @@ Formula: `leakage = entitled AND NOT taken AND NOT excluded`. Checks are sequent
 
 ### 2026-08-24 — Leakage root-cause categories
 
+Resolution note (2026-09-14):
+
+The deferred attribution rules were resolved by the Version 5 root-cause waterfall. The original broad categories remain valid; Version 5 adds detailed structural subtypes and secondary feasibility/contributor flags.
+
 **Context:** After identifying leakage, analysis must explain *why* discount was lost.
 
 **Decision:** Split **leakage only** (not realized, not excluded) into three categories:
@@ -931,12 +1131,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-13
+Last updated: 2026-09-14
 
-SAP P1 complete: fct_inv_sap full funnel + mart_cash_discount_kpi (6/3/1/2, €31.20). fct_inv_sap 14 rows; sap_ref_key from XREF2_HD (12 populated, FB60 orphans 0014/0015 null).
-
-Coupa P1 complete: dim_vendor_coupa (6 active); fct_inv_coupa (14 slim rows). Credit note 10010 src only. Coupa orphans 10014/10015 (no SAP).
-
-Map P1 complete: map_inv_sap_coupa 12 rows (sap_ref_key = coupa_id at posting). Cross-system join via map only.
-
-Next: fct_inv_coupa_changes. Deferred P2+: entitlement-at-clearing snapshot; Coupa pre-post in-flight; SAP parked docs; XBLNR on SAP.
+Root-cause Version 5 design accepted but not yet implemented. It introduces minimum and standard cycle benchmarks, insufficient/compressed intake buckets, and is_still_feasible, requires_expedited_processing, and is_timing_contributor flags. Existing leakage KPIs remain unchanged.
