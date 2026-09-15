@@ -26,6 +26,71 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-15 — Version 5 seed expansion (primary_cause bucket coverage)
+
+Context:
+
+Version 5 root-cause waterfall was implemented on `fct_inv_sap` but synthetic seeds only covered two leakage buckets (`timing` on 5100000003, `capture` on 5100000012). Structural sub-buckets, `data_quality_error`, and key `available_days` boundaries had no labeled scenarios or singular tests.
+
+Decision:
+
+Strategy **Option A** — add new KR + Coupa rows and update funnel/mart count tests (heroes unchanged).
+
+Seeds
+
+- `seed_payment_term_sap.csv` — added **Z205** (2/5 net 30; discount_pct 0.02, discount_days 5) so Rule 2 (`structural_terms_vs_capability`) can fire.
+- `raw_inv_sap.csv` — added 6 KR rows (5100000016–5100000021).
+- `raw_inv_coupa.csv` — added 5 rows (10016–10020); no Coupa row for 5100000021 (SAP-only FB60).
+
+Scenario matrix (leakage rows)
+
+| BELNR | coupa_id | ZTERM | primary_cause | available_days | lost € | Notes |
+|-------|----------|-------|---------------|----------------|--------|-------|
+| 5100000003 | 10003 | Z210 | timing | 13 | 17.80 | **hero** — unchanged |
+| 5100000012 | 10012 | Z210 | capture | 13 | 13.40 | **hero** — unchanged |
+| 5100000016 | 10016 | Z205 | structural_terms_vs_capability | 15 | 20.00 | Rule 2; discount_days (5) < standard (10) |
+| 5100000017 | 10017 | Z210 | structural_insufficient_time_at_intake | 3 | 16.00 | Rule 3; cleared after deadline |
+| 5100000018 | 10018 | Z210 | structural_compressed_intake | 5 | 12.00 | Rule 4; boundary available_days = minimum (5) |
+| 5100000019 | 10019 | Z210 | timing | 10 | 11.00 | Rule 5; boundary available_days = standard (10) |
+| 5100000020 | 10020 | Z210 | capture | 7 | 15.00 | Rule 1 wins despite compressed intake |
+| 5100000021 | — | Z210 | data_quality_error | null | 18.00 | SAP-only; empty XREF2_HD; receipt_date null |
+
+Hero / excluded (unchanged)
+
+- 5100000013 → excluded (`do_not_take_skonto_at_clearing`), not leakage.
+
+Expected counts (period 2024, default vars)
+
+| Metric | Value |
+|--------|-------|
+| fct_inv_sap rows | 20 |
+| fct_inv_coupa rows | 19 |
+| map_inv_sap_coupa rows | 17 |
+| fct_inv_coupa paid matched | 14 |
+| kpi_entitled | 12 |
+| taken | 3 |
+| excluded | 1 |
+| leakage | 8 |
+| leakage_eur | 123.20 |
+| discount_opportunity_eur | 288.21 |
+| leakage_rate (4 dp) | 0.4275 |
+
+Tests
+
+Updated: `assert_fct_inv_sap_kpi_funnel_counts`, `assert_mart_cash_discount_kpi_expected_values`, `assert_map_inv_sap_coupa_row_count`, `assert_fct_inv_coupa_row_count`, `assert_fct_inv_coupa_paid_matched_count`, `assert_fct_inv_sap_sap_ref_key_scenarios` (explicit `IN` lists — string `BETWEEN` on BELNR is unsafe), `assert_map_inv_sap_coupa_orphans_absent` (added 5100000021).
+
+Added singular tests per bucket: `assert_fct_inv_sap_leakage_terms_vs_capability`, `assert_fct_inv_sap_leakage_insufficient_intake`, `assert_fct_inv_sap_leakage_compressed_intake_boundary_5`, `assert_fct_inv_sap_leakage_timing_boundary_10`, `assert_fct_inv_sap_leakage_capture_compressed`, `assert_fct_inv_sap_leakage_data_quality`; optional `assert_fct_inv_sap_leakage_v5_bucket_coverage`.
+
+Unchanged: hero tests `assert_fct_inv_sap_leakage_seed_scenarios`, `assert_fct_inv_sap_leakage_timing_hero_flags`.
+
+Run: `dbt seed --full-refresh` then `dbt build --select fct_inv_coupa fct_inv_sap+ map_inv_sap_coupa+` then `dbt test --select fct_inv_sap mart_cash_discount_kpi`.
+
+Deferred (unchanged): timing sub-buckets, wrong_clock_confirmed, mart breakdown by primary_cause.
+
+Why: Completes labeled curriculum for all six Version 5 `primary_cause` buckets without changing waterfall logic or hero scenarios.
+
+Impact: Every `primary_cause` value has at least one auditable seed scenario; funnel/mart totals reflect expanded synthetic portfolio.
+
 2026-09-14 — Leakage root-cause waterfall Version 5
 
 Context:
@@ -221,13 +286,11 @@ P1 implementation choices:
 - **CTE chain:** … → with_exclusion → with_receipt → with_cycle_benchmarks → with_leakage_diagnostics → with_primary_cause → with_leakage.
 - **Columns added:** receipt_date, discount_days, minimum_cycle_days, standard_cycle_days, available_days, actual_cycle_days, operational_deadline_date, primary_cause_group, is_still_feasible, requires_expedited_processing, is_timing_contributor. `primary_cause` uses Version 5 detailed buckets.
 
-Expected on current synthetic data (unchanged funnel):
+Expected on current synthetic data (period 2024, default vars):
 
-- Funnel: 6 kpi_entitled / 3 taken / 1 excluded / 2 leakage / leakage_eur 31.20.
-- 5100000003 → primary_cause `timing`, primary_cause_group `timing`.
-- 5100000012 → primary_cause `capture`, primary_cause_group `capture`; secondary flags null.
-- Structural sub-buckets and `data_quality_error` on leakage: **not yet covered by seed scenarios** — deferred to seed expansion.
-
+- Funnel: 12 kpi_entitled / 3 taken / 1 excluded / 8 leakage / leakage_eur 123.20.
+- Heroes unchanged: 5100000003 → `timing`; 5100000012 → `capture`; 5100000013 → excluded.
+- All six `primary_cause` buckets covered on leakage rows (see 2026-09-15 seed expansion entry).
 Deferred:
 
 - Timing sub-buckets (Coupa phase breakdown).
@@ -1122,21 +1185,20 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
 | src_smoke_test | src (view) | — | Connection smoke test |
-| seed_payment_term_sap | seed | one row per ZTERM | Z210, N030; 2 rows | Update fct_inv_sap note: 11 rows; discount_pct, discount_deadline_date, is_entitled, not_entitled_reason
-| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 13 rows; AUGDT, SKNTO, PAYBLK_CLR, DISP_CLR, MGRBLK_CLR, NOSKNT_CLR |
+| seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
+| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 21 rows; incl. XREF2_HD, 5100000016–5100000021 |
 | src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; clearing_date, discount_taken_amount, four *_at_clearing flags |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 14 rows; P1 funnel + Version 5 root-cause: receipt_date, discount_days, cycle benchmarks (5/10), diagnostics, primary_cause (6 buckets), primary_cause_group, secondary flags
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 20 rows; P1 funnel + Version 5 root-cause (all buckets covered) |
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
 | src_vendor_coupa | src (view) | one row per supplier | Rename + cast; includes inactive |
 | dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows; is_active |
-| raw_inv_coupa | seed | one row per invoice doc | 15 rows; quote_columns |
+| raw_inv_coupa | seed | one row per invoice doc | 20 rows; quote_columns |
 | src_inv_coupa | src (view) | one row per invoice doc | All doc types incl. credit note |
-| fct_inv_coupa | fct (table) | one row per Coupa invoice | 14 rows; slim header; no KPI funnel |
+| fct_inv_coupa | fct (table) | one row per Coupa invoice | 19 rows; 14 paid matched |
 | _dim__models.yml | schema | — | vendor_id + is_active tests (SAP + Coupa) |
 | _fct__models.yml | schema | — | SAP funnel tests + fct_inv_coupa slim column tests |
-| tests/ | singular | — | SAP funnel + Coupa row counts, credit note, orphans, open matched |
-| map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 12 confirmed matches; FKs to fct_inv_sap + fct_inv_coupa |
----
+| tests/ | singular | — | Version 5 bucket tests + updated funnel/mart counts |
+| map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 17 confirmed matches |---
 
 ## Conventions (stable)
 
@@ -1155,4 +1217,4 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 Last updated: 2026-09-15
 
-Version 5 root-cause waterfall implemented on fct_inv_sap. Benchmarks: minimum_cycle_days=5, standard_cycle_days=10 (calendar). receipt_date from Coupa created_at via sap_ref_key. Funnel and mart KPIs unchanged (6/3/1/2, leakage_eur 31.20). Heroes: 0003 timing, 0012 capture, 0013 excluded. Next: extend seeds for structural sub-buckets, data_quality_error, and boundary scenarios; timing sub-buckets still deferred.
+Version 5 root-cause waterfall + seed expansion complete. All six primary_cause buckets labeled (5100000016–5100000021). Heroes unchanged: 0003 timing, 0012 capture, 0013 excluded. Funnel: 12/3/1/8; leakage_eur 123.20. Benchmarks: minimum_cycle_days=5, standard_cycle_days=10. Next deferred: timing sub-buckets (Coupa phase), wrong_clock_confirmed, mart breakdown by cause.
