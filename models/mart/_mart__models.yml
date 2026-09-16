@@ -17,3 +17,35 @@ models:
         description: leakage_eur / discount_opportunity_eur (KPI entitled universe).
       - name: kpi_entitled_count
         tests: [not_null]
+
+  - name: mart_cash_discount_kpi_by_cause
+    description: >
+      Leakage KPI breakdown by Version 5 primary_cause.
+      One row per cause per reporting period; leakage rows only.
+    columns:
+      - name: reporting_period_start
+        tests: [not_null]
+      - name: reporting_period_end
+        tests: [not_null]
+      - name: primary_cause
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - data_quality_error
+                  - capture
+                  - structural_terms_vs_capability
+                  - structural_insufficient_time_at_intake
+                  - structural_compressed_intake
+                  - timing
+      - name: primary_cause_group
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [capture, structural, timing, unclassified]
+      - name: leakage_count
+        tests: [not_null]
+      - name: leakage_eur
+        tests: [not_null]

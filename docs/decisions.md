@@ -26,6 +26,74 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-16 — Mart leakage breakdown by primary_cause
+
+Context:
+
+Version 5 root-cause waterfall and seed expansion labeled all six `primary_cause` buckets on `fct_inv_sap` leakage rows. `mart_cash_discount_kpi` exposes headline funnel KPIs only (one row per period). Dashboard / portfolio use needs leakage_eur and leakage_count split by Version 5 cause without changing headline mart or fact waterfall logic.
+
+Decision:
+
+Mart model
+
+Model: `mart_cash_discount_kpi_by_cause` (table, `models/mart/`)
+Source: `{{ ref('fct_inv_sap') }}` — read `primary_cause`, `primary_cause_group`, `lost_discount_amount` only; do not recompute attribution.
+Filter: `where is_leakage` (leakage population only; `primary_cause` is null elsewhere).
+Grain: one row per `(reporting_period_start, reporting_period_end, primary_cause)`.
+Period vars: same as headline mart — `var('reporting_period_start', '2024-01-01')`, `var('reporting_period_end', '2024-12-31')`. Echoed on each row; no additional period filter beyond fact funnel flags.
+
+Columns
+
+- `reporting_period_start`, `reporting_period_end`
+- `primary_cause` — Version 5 detailed bucket (not null on leakage)
+- `primary_cause_group` — denormalized roll-up (`capture`, `structural`, `timing`, `unclassified`)
+- `leakage_count` — `count(*)` per cause
+- `leakage_eur` — `round(sum(lost_discount_amount), 2)` per cause
+- `leakage_share` — `leakage_eur / total leakage_eur` (decimal 0–1, 6 dp)
+- `leakage_count_share` — `leakage_count / total leakage_count` (decimal 0–1, 6 dp)
+
+Headline mart `mart_cash_discount_kpi` unchanged.
+
+Expected on current synthetic data (period 2024, default vars) — 6 rows, 8 leakage invoices
+
+| primary_cause | primary_cause_group | leakage_count | leakage_eur |
+|---------------|---------------------|---------------|-------------|
+| capture | capture | 2 | 28.40 |
+| timing | timing | 2 | 28.80 |
+| structural_terms_vs_capability | structural | 1 | 20.00 |
+| data_quality_error | unclassified | 1 | 18.00 |
+| structural_insufficient_time_at_intake | structural | 1 | 16.00 |
+| structural_compressed_intake | structural | 1 | 12.00 |
+| **Total** | | **8** | **123.20** |
+
+Invoice detail (for test comments):
+
+- capture €28.40 = 5100000012 (€13.40) + 5100000020 (€15.00)
+- timing €28.80 = 5100000003 (€17.80) + 5100000019 (€11.00)
+
+Reconciliation invariants (must hold):
+
+- `sum(leakage_count) = 8` = `mart_cash_discount_kpi.leakage_count`
+- `sum(leakage_eur) = 123.20` = `mart_cash_discount_kpi.leakage_eur`
+- `round(sum(leakage_share), 4) = 1.0`
+- 6 distinct `primary_cause` values
+
+Tests
+
+File: `models/mart/_mart__models.yml` — docs + `not_null` on period bounds, counts, amounts; `accepted_values` on `primary_cause` (6 Version 5 buckets) and `primary_cause_group`.
+
+Singular: `assert_mart_cash_discount_kpi_by_cause_row_count` (6 rows), `assert_mart_cash_discount_kpi_by_cause_expected_values` (per-cause count/EUR), `assert_mart_cash_discount_kpi_by_cause_reconciles_to_headline` (sums match headline mart).
+
+Unchanged: `assert_mart_cash_discount_kpi_expected_values`, `fct_inv_sap` waterfall logic, hero scenarios, existing fct leakage singular tests.
+
+Run: `dbt build --select mart_cash_discount_kpi_by_cause+` then `dbt test --select mart_cash_discount_kpi_by_cause mart_cash_discount_kpi`.
+
+Deferred (unchanged): mart by vendor / company_code; mart by `primary_cause_group` only (derive in BI from this mart); Coupa mart; timing sub-buckets; wrong_clock_confirmed.
+
+Why: Surfaces portfolio-ready leakage breakdown by Version 5 cause while keeping headline KPI mart stable and fact attribution as single source of truth.
+
+Impact: BI can filter/roll up by `primary_cause` or `primary_cause_group`; totals reconcile to headline mart.
+
 2026-09-15 — Version 5 seed expansion (primary_cause bucket coverage)
 
 Context:
@@ -85,7 +153,7 @@ Unchanged: hero tests `assert_fct_inv_sap_leakage_seed_scenarios`, `assert_fct_i
 
 Run: `dbt seed --full-refresh` then `dbt build --select fct_inv_coupa fct_inv_sap+ map_inv_sap_coupa+` then `dbt test --select fct_inv_sap mart_cash_discount_kpi`.
 
-Deferred (unchanged): timing sub-buckets, wrong_clock_confirmed, mart breakdown by primary_cause.
+Deferred (unchanged): timing sub-buckets, wrong_clock_confirmed. Mart breakdown by primary_cause → see 2026-09-16 entry.
 
 Why: Completes labeled curriculum for all six Version 5 `primary_cause` buckets without changing waterfall logic or hero scenarios.
 
@@ -297,7 +365,6 @@ Deferred:
 - wrong_clock_confirmed.
 - Benchmark seed table / segmentation by invoice type.
 - Production receipt_date source mapping.
-- Mart dimensional breakdown by cause.
 
 Run: `dbt build --select fct_inv_coupa fct_inv_sap+` then `dbt test --select fct_inv_sap`.
 
@@ -498,7 +565,7 @@ discount_opportunity_eur = 196.21. realized_discount_eur = 135.01. excluded_oppo
 
 Deferred
 
-Dimensional mart breakdowns (vendor, company_code, primary_cause); Coupa mart or cross-system union; sap_ref_key; map_inv_sap_coupa.
+Dimensional mart breakdowns (vendor, company_code); Coupa mart or cross-system union. `primary_cause` breakdown → `mart_cash_discount_kpi_by_cause` (2026-09-16). sap_ref_key and map_inv_sap_coupa implemented 2026-09-13.
 
 Tests
 
@@ -1197,8 +1264,10 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | fct_inv_coupa | fct (table) | one row per Coupa invoice | 19 rows; 14 paid matched |
 | _dim__models.yml | schema | — | vendor_id + is_active tests (SAP + Coupa) |
 | _fct__models.yml | schema | — | SAP funnel tests + fct_inv_coupa slim column tests |
-| tests/ | singular | — | Version 5 bucket tests + updated funnel/mart counts |
-| map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 17 confirmed matches |---
+| tests/ | singular | — | Version 5 bucket tests + mart by-cause reconciliation |
+| map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 17 confirmed matches |
+| mart_cash_discount_kpi | mart (table) | one row per reporting period | Headline funnel KPIs; leakage_eur 123.20 |
+| mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; leakage breakdown; reconciles to headline |---
 
 ## Conventions (stable)
 
@@ -1215,6 +1284,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-15
+Last updated: 2026-09-16
 
-Version 5 root-cause waterfall + seed expansion complete. All six primary_cause buckets labeled (5100000016–5100000021). Heroes unchanged: 0003 timing, 0012 capture, 0013 excluded. Funnel: 12/3/1/8; leakage_eur 123.20. Benchmarks: minimum_cycle_days=5, standard_cycle_days=10. Next deferred: timing sub-buckets (Coupa phase), wrong_clock_confirmed, mart breakdown by cause.
+Version 5 waterfall + seed expansion + mart by cause complete. `mart_cash_discount_kpi` headline unchanged (12/3/1/8; leakage_eur 123.20). `mart_cash_discount_kpi_by_cause`: 6 rows by primary_cause, reconciles to headline. Heroes unchanged: 0003 timing, 0012 capture, 0013 excluded. Next deferred: timing sub-buckets (Coupa phase), wrong_clock_confirmed; mart by vendor/company_code.
