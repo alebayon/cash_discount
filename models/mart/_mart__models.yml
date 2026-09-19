@@ -49,3 +49,19 @@ models:
         tests: [not_null]
       - name: leakage_eur
         tests: [not_null]
+
+  - name: mart_timing_phase_profile
+    description: >
+      Population timing profile by ownership phase for the reporting period.
+      Measured spans only; periodized on span_end_date. No benchmark comparison.
+    columns:
+      - name: reporting_period_start
+        tests: [not_null]
+      - name: reporting_period_end
+        tests: [not_null]
+      - name: phase_level
+        tests: [not_null]
+      - name: phase_code
+        tests: [not_null]
+      - name: span_count
+        tests: [not_null]
