@@ -90,9 +90,119 @@ Analytical reads (not tests):
 
 Version 5 unchanged: funnel 12/3/1/8; leakage_eur 123.20; heroes 0003 timing, 0012 capture, 0013 excluded.
 
-Deferred (slice 2+): fct_inv_coupa_changes subprocess split; overlay reason intervals; fct_inv_sap_changes; frozen benchmarks (D16/D18); Coupa operational dashboard; wrong_clock_confirmed.
+Deferred (slice 3+): overlay reason intervals; fct_inv_sap_changes; frozen benchmarks; Coupa operational dashboard; wrong_clock_confirmed. Subprocess split -> see 2026-09-19 slice 2 pre-build entry.
 
 Run: dbt seed --full-refresh --select raw_inv_sap && dbt build --select fct_inv_timing_span+ mart_timing_phase_profile+ && dbt test
+
+2026-09-19 — Timing phase layer slice 2 pre-build (Coupa subprocess split)
+
+Context:
+
+Slice 1 delivered ownership-level spans only (pre_sap, payment) on all 20 fct_inv_sap invoices. Slice 2 splits pre_sap into four Coupa subprocess phases using event history, adds fct_inv_coupa_changes, and extends fct_inv_timing_span with subprocess rows plus start_event_id / end_event_id drill-through. Version 5 funnel, heroes, mart KPIs, and every existing test must remain byte-for-byte unchanged. Ownership rows (40) must be identical after Slice 2 build.
+
+Status: PRE-BUILD — design locked; seeds and SQL not yet implemented. Row counts and reconciliation results to be filled after build.
+
+Decisions (D19–D29, slice 2 scope):
+
+- D19 Portfolio: retrofit only — no new raw_inv_sap / raw_inv_coupa rows. All subprocess instrumentation on existing 20 fct_inv_sap invoices (17 Coupa-matched + 3 SAP-only). Version 5 counts and heroes unchanged.
+- D20 Rework: rejected maps to status_role approval_end (closes current approval visit). Rework restarts at verification (submitted / verification_start), not re-intake. New visits increment span_seq per (sap_inv_key, phase_level, phase_code). Sum visits per phase; never first-entry-to-last-exit across the invoice.
+- D21 Status map (seed_coupa_status_map): phases defined by status_role, never hardcoded status strings in span SQL.
+
+  | status | status_role | role_kind |
+  |--------|-------------|-----------|
+  | draft | work_start | boundary |
+  | submitted | verification_start | boundary |
+  | pending_approval | approval_start | boundary |
+  | approved | approval_end | boundary |
+  | rejected | approval_end | boundary |
+  | on_hold | on_hold | informational |
+  | paid | coupa_paid | informational |
+
+  Omitted Slice 2: pending_receipt (add later if needed).
+  Deferred from map / matched-invoice events: disputed, voided — Coupa-only terminal paths; obsolete/cancelled invoices out of scope for timing inefficiency analysis. Coupa orphans (10014 disputed, 10015 voided) are not in fct_inv_sap and do not enter fct_inv_timing_span.
+
+- D22 paid events: may appear in fct_inv_coupa_changes as informational only (Coupa UI realism). Must not drive subprocess or ownership payment spans. SAP clearing_date is the only payment milestone. No propagation to other models.
+- D23 Interface phase: span ends at fct_inv_sap.sap_entry_date (CPUDT), not a Coupa status. end_event_id = null; end_milestone_field = sap.cpudt. start_event_id = coupa_change_id of last approval_end boundary. Ownership rows: start_event_id and end_event_id both null.
+- D24 Timestamps: date-only event dates in Slice 2 (no intraday time). Multiple events per calendar day allowed. Tie-break order: event_date, revision_seq, coupa_change_id. span_days = 0 for same-day boundaries — valid operational signal (same-day completion incentive). Contrast invoices labelled slow in a specific phase still allocate >= 1 day to that phase so subprocess mart medians remain distinguishable.
+- D25 Coverage and chronology: all 17 Coupa-matched fct_inv_sap rows get full event history. Hard chronology on matched cleared rows: receipt_date (Coupa created_at) <= events <= sap_entry_date <= clearing_date when cleared. Open matched (5100000005, 5100000006, 5100000009): full workflow through approved; subprocess payment = not_ended (mirrors ownership).
+- D26 fct_inv_coupa header: current state only; no enrichment to draft/submitted. Open matched rows remain approved (already true in seeds).
+- D27 on_hold: informational only — does not open or close phases; span state machine ignores it. Used on 5100000008 mid-verification as substitute for pending_receipt scenario.
+- D28 Reconciliation invariants (tests): where all four pre-SAP subprocess phases are measured, intake + verification + approval + interface span_days = ownership pre_sap span_days (exact). Exclude not_applicable / not_measurable from sum test. Subprocess payment must match ownership payment per sap_inv_key (days, status, dates). Ownership 40 rows unchanged vs Slice 1. Split row-count tests: ownership 40 + separate subprocess total. No assert_fct_inv_timing_span_contrast_* singular tests.
+- D29 Deferred unchanged: buffer_consumption, runway_at_handoff columns, dominant_phase / primary_timing_subbucket, Coupa in-flight operational dashboard (D10), frozen benchmarks (D16/D18), overlay reason intervals (slice 3), fct_inv_sap_changes (slice 4).
+
+Subprocess phases (phase_level = subprocess):
+
+| phase_code | span_start milestone | span_end milestone |
+|------------|---------------------|-------------------|
+| intake | first work_start (per visit) | first verification_start after it |
+| verification | verification_start (per visit) | first approval_start after it |
+| approval | approval_start (per visit) | first approval_end after it |
+| interface | last successful approval_end | sap_entry_date (fct_inv_sap) |
+| payment | sap_entry_date | clearing_date |
+
+SAP-only (5100000014, 5100000015, 5100000021): intake / verification / approval / interface = not_applicable; payment = measured or not_ended (mirror ownership).
+
+Architecture:
+
+- Branch A (unchanged): fct_inv_sap -> fct_inv_timing_span WHERE phase_level = ownership
+- Branch B (new): raw_inv_coupa_changes -> src_inv_coupa_changes -> fct_inv_coupa_changes; join seed_coupa_status_map; + fct_inv_sap SAP dates -> fct_inv_timing_span WHERE phase_level = subprocess
+- UNION ALL into fct_inv_timing_span. Ownership must not depend on Coupa events.
+
+Contrast curriculum (existing BELNRs; pre_sap totals fixed by Slice 1 — only phase distribution changes):
+
+| Role | BELNR | Notes |
+|------|-------|-------|
+| Happy / fast path | 5100000001 or 5100000004 | Taken; tight subprocess |
+| Slow verification only | 5100000017 | Most pre_sap days in verification |
+| Slow approval only | 5100000018 | Most pre_sap days in approval |
+| Slow interface only | 5100000016 | Delay before CPUDT |
+| Payment runway (timing hero) | 5100000003 | Rich timing story; pre_sap + payment subprocess |
+| Two phases jointly slow (timing hero) | 5100000019 | Rich timing story; verification + approval share days |
+| Rework | 5100000020 | span_seq > 1 on approval and/or verification |
+| on_hold informational | 5100000008 | on_hold revision mid-verification; no boundary effect |
+| Capture hero (fast) | 5100000012 | Minimal/fast subprocess; not timing-focused |
+| Excluded hero | 5100000013 | Minimal reconciling history only |
+| Remaining matched | 0002, 0005–0007, 0009, 0011, etc. | Full history; sum reconciles to ownership pre_sap |
+
+New artifacts (to build):
+
+Seeds:
+- raw_inv_coupa_changes.csv — grain one row per Coupa revision; columns id, invoice-id, status, created-at, revision-number; quote_columns true
+- seed_coupa_status_map.csv — status -> status_role map per D21
+
+Models:
+- src_inv_coupa_changes (view) — rename/cast only
+- fct_inv_coupa_changes (table) — grain coupa_change_id; FK coupa_id -> fct_inv_coupa; status_role from seed join
+- fct_inv_timing_span (changed) — UNION ownership + subprocess; add start_event_id, end_event_id (12 columns total)
+- mart_timing_phase_profile (unchanged SQL) — grows from 2 to 7 rows (2 ownership + 5 subprocess)
+
+Expected counts (to confirm on build):
+
+| Metric | Expected |
+|--------|----------|
+| fct_inv_timing_span ownership rows | 40 (identical to slice 1) |
+| fct_inv_timing_span subprocess rows | 100 base (20 x 5) + rework extras |
+| mart_timing_phase_profile rows | 7 |
+| fct_inv_coupa_changes rows | [TBD after seed author] |
+
+Tests (to add / update):
+
+- assert_fct_inv_timing_span_ownership_unchanged (new)
+- assert_fct_inv_timing_span_subprocess_reconciles_pre_sap (new)
+- assert_fct_inv_timing_span_subprocess_payment_matches_ownership (new)
+- assert_fct_inv_timing_span_subprocess_row_count (new — set expected after build)
+- assert_fct_inv_coupa_changes_row_count (new)
+- assert_fct_inv_timing_span_row_count — scope to ownership only OR split
+- assert_mart_timing_phase_profile_row_count — update 2 to 7
+- Full dbt test suite: all slice 1 + Version 5 tests unchanged
+
+Run (after implementation):
+
+dbt seed --full-refresh --select raw_inv_coupa_changes seed_coupa_status_map
+dbt build --select fct_inv_coupa_changes+ fct_inv_timing_span+ mart_timing_phase_profile+
+dbt test
+
+Version 5 unchanged (hard constraint): funnel 12/3/1/8; leakage_eur 123.20; heroes 5100000003 timing, 5100000012 capture, 5100000013 excluded.
 
 2026-09-16 — Mart leakage breakdown by primary_cause
 
@@ -1335,7 +1445,15 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | tests/ | singular | — | Version 5 bucket tests + mart by-cause reconciliation |
 | map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 17 confirmed matches |
 | mart_cash_discount_kpi | mart (table) | one row per reporting period | Headline funnel KPIs; leakage_eur 123.20 |
-| mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; leakage breakdown; reconciles to headline |---
+| mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; leakage breakdown; reconciles to headline |
+| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 40 rows; ownership pre_sap + payment |
+| mart_timing_phase_profile | mart (table) | period × phase_level × phase_code | 2 rows; measured spans by span_end_date |
+| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | Slice 1: 40 ownership rows; Slice 2 adds subprocess + event IDs |
+| mart_timing_phase_profile | mart (table) | one row per period x phase_level x phase_code | Slice 1: 2 rows; Slice 2 target: 7 rows |
+| raw_inv_coupa_changes | seed | one row per Coupa revision | Slice 2 pre-build; quote_columns |
+| seed_coupa_status_map | seed | one row per Coupa status | Slice 2 pre-build; D21 vocabulary |
+| src_inv_coupa_changes | src (view) | one row per revision | Slice 2 pre-build |
+| fct_inv_coupa_changes | fct (table) | coupa_change_id | Slice 2 pre-build; FK coupa_id -> fct_inv_coupa |---
 
 ## Conventions (stable)
 
@@ -1352,6 +1470,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-16
+Last updated: 2026-09-19
 
-Version 5 waterfall + seed expansion + mart by cause complete. `mart_cash_discount_kpi` headline unchanged (12/3/1/8; leakage_eur 123.20). `mart_cash_discount_kpi_by_cause`: 6 rows by primary_cause, reconciles to headline. Heroes unchanged: 0003 timing, 0012 capture, 0013 excluded. Next deferred: timing sub-buckets (Coupa phase), wrong_clock_confirmed; mart by vendor/company_code.
+Timing slice 1 complete (ownership 40 spans, mart 2 rows). Slice 2 pre-build locked (D19–D29): retrofit only; fct_inv_coupa_changes + seed_coupa_status_map; subprocess phases intake/verification/approval/interface/payment; on_hold informational on 5100000008; no pending_receipt; no contrast singular tests; ownership rows must stay identical. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: implement slice 2 seeds/SQL, then slice 3 overlay reasons or slice 4 fct_inv_sap_changes.
