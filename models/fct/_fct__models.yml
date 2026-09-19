@@ -20,6 +20,13 @@ models:
               arguments:
                 to: ref('dim_vendor_sap')
                 field: vendor_id
+      - name: sap_entry_date
+        description: >
+         SAP document entry date (BKPF CPUDT). System-stamped at document
+         creation; process milestone for timing spans. Not used in Version 5
+         waterfall logic.
+        tests:
+          - not_null      
       - name: clearing_date
         description: SAP clearing date (AUGDT). Null when invoice is open/uncleared.
       - name: discount_taken_amount
