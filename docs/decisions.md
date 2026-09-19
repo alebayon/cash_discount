@@ -26,6 +26,74 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-19 — Timing phase layer slice 1 (ownership spans)
+
+Context:
+
+Version 5 classifies leakage root cause via an ordered waterfall on fct_inv_sap. Portfolio needs phase-duration instrumentation — how long pre-SAP and payment took — without changing leakage eligibility, amounts, primary_cause, or funnel flags. Slice 1 ships the instrument only; no subprocess split, overlays, or benchmarks.
+
+Decisions (D1–D18, slice 1 scope):
+
+- D1: fct_inv_timing_span reads fct_inv_sap only; recomputes nothing; does not alter Version 5.
+- D2: Population = all 20 fct_inv_sap invoices, not leakage only (avoids outcome-conditioned metrics).
+- D3: Mart period anchor = span_end_date, not clearing_date.
+- D4: CPUDT → sap_entry_date is the SAP process entry milestone; BUDAT/posting_date remains accounting-only pass-through (never in CASE/WHERE/JOIN).
+- D5: Spans start at receipt_date (Coupa created_at), not baseline_date/invoice_date.
+- D6: Calendar days, datediff('day', …), closed-open; clock never pauses.
+- D7: No single-label phase attribution column (no dominant_phase, primary_timing_subbucket, etc.).
+- D8: phase_level on every row ('ownership' in slice 1; 'subprocess' deferred slice 2).
+- D9: span_status ∈ {measured, not_applicable, not_ended, not_measurable}; pre_sap never not_ended; sap_entry_date not_null on fct_inv_sap.
+- D10: Coupa-only in-flight (approved, not posted) out of scope — no fct_inv_sap row.
+- D11: Mart percentiles use percentile_cont.
+- D12: Dropped from slice 1: milestone_confidence, start_event_id, end_event_id, max_span_days.
+- D13: pre_sap = minimise duration; payment = hit the window (deadline-relative runway, not raw duration as KPI).
+- D14–D18: Overlay reasons, change tables, benchmarks — direction only; not built in slice 1.
+
+CPUDT seed (raw_inv_sap.csv):
+
+- Added column CPUDT after BLDAT on all 21 raw rows.
+- Constraints: never empty; Coupa-matched CPUDT >= Coupa created-at and <= AUGDT when cleared; SAP-only (5100000014/15/21) CPUDT >= BLDAT; never copied from BUDAT (BLDAT+2/+3 artifact).
+- Intent: ~3–5 day receipt-to-entry on healthy population; chronology fix on 5100000017/18/20 (BUDAT was before Coupa create — CPUDT restores order without changing Version 5 numbers).
+- Heroes 5100000003 and 5100000019 unchanged for V5 attribution.
+
+Models:
+
+- src_inv_sap: cpudt → sap_entry_date (cast nullif trim).
+- fct_inv_sap: sap_entry_date pass-through only (not in waterfall).
+- fct_inv_timing_span (table): grain (sap_inv_key, phase_level, phase_code, span_seq). Ownership phases: pre_sap (receipt_date → sap_entry_date), payment (sap_entry_date → clearing_date).
+- mart_timing_phase_profile (table): measured spans only; span_end_date in reporting period; grain (period_start, period_end, phase_level, phase_code).
+
+Expected counts (confirmed on build):
+
+| Metric | Value |
+|--------|-------|
+| fct_inv_timing_span rows | 40 |
+| measured spans | 34 |
+| pre_sap measured / not_applicable | 17 / 3 (5100000014, 5100000015, 5100000021) |
+| payment measured / not_ended | 17 / 3 (5100000005, 5100000006, 5100000009) |
+| not_measurable | 0 |
+| mart_timing_phase_profile rows | 2 |
+| mart span_count per phase (2024 period) | 16 each (5100000011 excluded — span_end in 2025) |
+
+Tests:
+
+- Schema: fct_inv_sap.sap_entry_date not_null; fct_inv_timing_span + mart_timing_phase_profile column tests in layer YAML.
+- Singular: assert_fct_inv_timing_span_row_count, no_negative_days, reconciles_cycle, status_scenarios, no_unmeasurable, unique_grain; assert_mart_timing_phase_profile_row_count.
+- Full dbt test suite: all pre-existing Version 5 tests unchanged.
+
+Analytical reads (not tests):
+
+- Step 9: sum(median_span_days) across ownership phases = [RUN RESULT]; standard_cycle_days = 10. [Interpretation: if sum > 10, typical phase medians exceed the sustainable cycle benchmark.]
+- Step 9b runway_at_handoff on timing leakage heroes:
+  - 5100000003: runway [RUN], deadline_miss_days [RUN] — entered SAP with runway but cleared 14 days past deadline; payment-side failure on D13 lens despite V5 primary_cause = timing.
+  - 5100000019: runway [RUN], deadline_miss_days [RUN] — same pattern.
+
+Version 5 unchanged: funnel 12/3/1/8; leakage_eur 123.20; heroes 0003 timing, 0012 capture, 0013 excluded.
+
+Deferred (slice 2+): fct_inv_coupa_changes subprocess split; overlay reason intervals; fct_inv_sap_changes; frozen benchmarks (D16/D18); Coupa operational dashboard; wrong_clock_confirmed.
+
+Run: dbt seed --full-refresh --select raw_inv_sap && dbt build --select fct_inv_timing_span+ mart_timing_phase_profile+ && dbt test
+
 2026-09-16 — Mart leakage breakdown by primary_cause
 
 Context:
