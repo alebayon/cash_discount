@@ -275,3 +275,38 @@ models:
                 values: [true, false]
       - name: payment_date
         description: Coupa payment date when paid; null on unpaid rows.
+
+  - name: fct_inv_timing_span
+    description: >
+      Ownership-level process phase spans per invoice. Reads fct_inv_sap only;
+      does not recompute leakage or Version 5 attribution. Population is all
+      invoices, not leakage only.
+    columns:
+      - name: sap_inv_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_inv_sap')
+                field: sap_inv_key
+      - name: phase_level
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['ownership', 'subprocess']
+      - name: phase_code
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['pre_sap', 'payment', 'intake', 'verification', 'approval', 'interface']
+      - name: span_seq
+        tests:
+          - not_null
+      - name: span_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['measured', 'not_applicable', 'not_ended', 'not_measurable']
