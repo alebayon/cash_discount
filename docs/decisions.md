@@ -26,6 +26,48 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+Status: COMPLETE — built and tested 2026-09-20.
+
+Decisions (D30, gap-free event authoring):
+
+- D30: Coupa change events must form a contiguous chain from receipt to CPUDT so subprocess pre-SAP phases reconcile to ownership pre_sap without per-invoice day tuning (extends D28).
+  - First `draft` event `created-at` = `raw_inv_coupa.created-at` for that invoice.
+  - Rework: `rejected` immediately followed by `submitted` on same `event_date` (0-second auto-resubmit); higher `revision-number` on `submitted`.
+  - Rework restarts at verification (`submitted`), not intake (`draft`) — D20 unchanged.
+  - Tail: interface span_end = sap_entry_date (CPUDT) — D23 unchanged.
+
+Actual counts (confirmed on build):
+
+| Metric | Value |
+|--------|-------|
+| fct_inv_coupa_changes rows | 72 |
+| fct_inv_timing_span ownership rows | 40 (unchanged vs slice 1) |
+| fct_inv_timing_span subprocess rows | 102 (100 base + 2 rework on 5100000020) |
+| fct_inv_timing_span total rows | 142 |
+| mart_timing_phase_profile rows | 7 |
+| Version 5 funnel | 12 / 3 / 1 / 8 |
+| leakage_eur | 123.20 |
+
+Reconciliation (tests pass):
+
+- Ownership pre_sap span_days unchanged vs slice 1 logic (17 measured Coupa-matched).
+- Corrected pre_sap reference (Snowflake datediff): 5100000001 = 5, 5100000003 = 4 (handover table had 4/3).
+- Subprocess intake + verification + approval + interface = ownership pre_sap where all four measured.
+- Subprocess payment matches ownership payment per sap_inv_key.
+- Rework 5100000020: span_seq 1 and 2 on verification and approval.
+
+Implementation notes:
+
+- span_seq for verification/approval computed after QUALIFY dedup (`*_paired` CTEs) to avoid 1,3 skip on rework.
+- No assert_fct_inv_timing_span_contrast_* tests (D28).
+- Mart verification/approval span_count = 17 in 2024 (rework extra visit); other phases = 16.
+
+Run:
+
+dbt seed --full-refresh --select raw_inv_coupa_changes seed_coupa_status_map
+dbt build --select fct_inv_coupa_changes+ fct_inv_timing_span+ mart_timing_phase_profile+
+dbt test
+
 2026-09-19 — Timing phase layer slice 1 (ownership spans)
 
 Context:
@@ -1423,37 +1465,36 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 
 ## Model inventory
 
-
 | Model | Layer | Grain | Notes |
 |-------|-------|-------|-------|
 | raw_vendor_sap | seed | one row per vendor | SAP LFA1 names; 7 rows in CSV |
-| src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
-| dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
-| src_smoke_test | src (view) | — | Connection smoke test |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
-| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 21 rows; incl. XREF2_HD, 5100000016–5100000021 |
-| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; clearing_date, discount_taken_amount, four *_at_clearing flags |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 20 rows; P1 funnel + Version 5 root-cause (all buckets covered) |
+| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 21 rows; incl. XREF2_HD, CPUDT, 5100000016–5100000021 |
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
-| src_vendor_coupa | src (view) | one row per supplier | Rename + cast; includes inactive |
-| dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows; is_active |
 | raw_inv_coupa | seed | one row per invoice doc | 20 rows; quote_columns |
+| raw_inv_coupa_changes | seed | one row per Coupa revision | 72 rows; 17 matched invoices; quote_columns |
+| seed_coupa_status_map | seed | one row per Coupa status | 7 rows; D21 status_role vocabulary |
+| src_smoke_test | src (view) | — | Connection smoke test |
+| src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
+| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; clearing_date, sap_entry_date, discount_taken_amount, four *_at_clearing flags |
+| src_vendor_coupa | src (view) | one row per supplier | Rename + cast; includes inactive |
 | src_inv_coupa | src (view) | one row per invoice doc | All doc types incl. credit note |
+| src_inv_coupa_changes | src (view) | one row per revision | Rename + cast only; event_at, event_date, revision_seq |
+| dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
+| dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows; is_active |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 20 rows; P1 funnel + Version 5 root-cause (all buckets covered) |
 | fct_inv_coupa | fct (table) | one row per Coupa invoice | 19 rows; 14 paid matched |
-| _dim__models.yml | schema | — | vendor_id + is_active tests (SAP + Coupa) |
-| _fct__models.yml | schema | — | SAP funnel tests + fct_inv_coupa slim column tests |
-| tests/ | singular | — | Version 5 bucket tests + mart by-cause reconciliation |
+| fct_inv_coupa_changes | fct (table) | coupa_change_id | 72 rows; FK coupa_id → fct_inv_coupa; status_role from seed |
+| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 142 rows; 40 ownership + 102 subprocess; start_event_id, end_event_id |
 | map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 17 confirmed matches |
 | mart_cash_discount_kpi | mart (table) | one row per reporting period | Headline funnel KPIs; leakage_eur 123.20 |
 | mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; leakage breakdown; reconciles to headline |
-| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 40 rows; ownership pre_sap + payment |
-| mart_timing_phase_profile | mart (table) | period × phase_level × phase_code | 2 rows; measured spans by span_end_date |
-| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | Slice 1: 40 ownership rows; Slice 2 adds subprocess + event IDs |
-| mart_timing_phase_profile | mart (table) | one row per period x phase_level x phase_code | Slice 1: 2 rows; Slice 2 target: 7 rows |
-| raw_inv_coupa_changes | seed | one row per Coupa revision | Slice 2 pre-build; quote_columns |
-| seed_coupa_status_map | seed | one row per Coupa status | Slice 2 pre-build; D21 vocabulary |
-| src_inv_coupa_changes | src (view) | one row per revision | Slice 2 pre-build |
-| fct_inv_coupa_changes | fct (table) | coupa_change_id | Slice 2 pre-build; FK coupa_id -> fct_inv_coupa |---
+| mart_timing_phase_profile | mart (table) | one row per period × phase_level × phase_code | 7 rows; measured spans by span_end_date (2 ownership + 5 subprocess) |
+| _dim__models.yml | schema | — | vendor_id + is_active tests (SAP + Coupa) |
+| _fct__models.yml | schema | — | SAP funnel + fct_inv_coupa + fct_inv_coupa_changes + fct_inv_timing_span |
+| _map__models.yml | schema | — | map_inv_sap_coupa bridge tests |
+| _mart__models.yml | schema | — | mart KPI + timing phase profile tests |
+| tests/ | singular | — | Version 5 bucket tests, mart by-cause, timing slice 1 + slice 2 reconciliation |---
 
 ## Conventions (stable)
 
@@ -1470,6 +1511,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-19
+Last updated: 2026-09-20
 
-Timing slice 1 complete (ownership 40 spans, mart 2 rows). Slice 2 pre-build locked (D19–D29): retrofit only; fct_inv_coupa_changes + seed_coupa_status_map; subprocess phases intake/verification/approval/interface/payment; on_hold informational on 5100000008; no pending_receipt; no contrast singular tests; ownership rows must stay identical. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: implement slice 2 seeds/SQL, then slice 3 overlay reasons or slice 4 fct_inv_sap_changes.
+Timing slice 1 complete (ownership 40 spans, mart 2 ownership rows). Slice 2 complete: fct_inv_coupa_changes (72 rows), seed_coupa_status_map, subprocess spans (intake/verification/approval/interface/payment), start_event_id/end_event_id, mart 7 rows, D30 gap-free event authoring. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: slice 3 overlay reasons or slice 4 fct_inv_sap_changes.

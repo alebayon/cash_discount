@@ -285,9 +285,10 @@ models:
 
   - name: fct_inv_timing_span
     description: >
-      Ownership-level process phase spans per invoice. Reads fct_inv_sap only;
-      does not recompute leakage or Version 5 attribution. Population is all
-      invoices, not leakage only.
+      Process phase spans per invoice. Ownership branch reads fct_inv_sap only
+      (pre_sap, payment). Subprocess branch reads fct_inv_coupa_changes plus SAP
+      dates (intake, verification, approval, interface, payment). Does not
+      recompute leakage or Version 5 attribution. Population is all invoices.
     columns:
       - name: sap_inv_key
         tests:
@@ -317,3 +318,58 @@ models:
           - accepted_values:
               arguments:
                 values: ['measured', 'not_applicable', 'not_ended', 'not_measurable']
+      - name: start_event_id
+        description: >
+          Coupa change id at subprocess span start (drill-through). Null on
+          ownership rows and SAP-milestone boundaries.
+      - name: end_event_id
+        description: >
+          Coupa change id at subprocess span end. Null on ownership rows,
+          interface end (CPUDT), and payment spans.
+
+  - name: fct_inv_coupa_changes
+    description: >
+      Coupa invoice revision events. One row per status change. Grain
+      coupa_change_id. status_role from seed_coupa_status_map drives subprocess
+      span boundaries (D21).
+    columns:
+      - name: coupa_change_id
+        description: Coupa invoice revision system id.
+        tests:
+          - unique
+          - not_null
+      - name: coupa_id
+        description: Parent Coupa invoice id. FK to fct_inv_coupa.
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_inv_coupa')
+                field: coupa_id
+      - name: status
+        description: Raw Coupa workflow status on this revision.
+        tests:
+          - not_null
+      - name: status_role
+        description: Timing vocabulary role from seed_coupa_status_map (D21).
+        tests:
+          - not_null
+      - name: role_kind
+        description: boundary (drives spans) or informational (ignored by span state machine).
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['boundary', 'informational']
+      - name: event_at
+        description: Event timestamp from Coupa created-at.
+        tests:
+          - not_null
+      - name: event_date
+        description: Date-only event date for span math (D24).
+        tests:
+          - not_null
+      - name: revision_seq
+        description: Tie-break when multiple events share event_date (D24).
+        tests:
+          - not_null

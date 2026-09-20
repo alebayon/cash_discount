@@ -1,0 +1,8 @@
+status,status_role,role_kind
+draft,work_start,boundary
+submitted,verification_start,boundary
+pending_approval,approval_start,boundary
+approved,approval_end,boundary
+rejected,approval_end,boundary
+on_hold,on_hold,informational
+paid,coupa_paid,informational

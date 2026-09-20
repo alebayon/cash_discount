@@ -12,3 +12,8 @@ seeds:
   - name: raw_vendor_coupa
     config:
       quote_columns: true
+  - name: raw_inv_coupa_changes
+    config:
+      quote_columns: true
+  - name: seed_coupa_status_map
+    description: Coupa invoice status to timing role vocabulary (D21).
