@@ -26,6 +26,133 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-09-22 — Timing phase layer slice 3 pre-build (blocker overlay intervals)
+
+Context:
+
+Slices 1–2 deliver phase-duration instrumentation on all 20 fct_inv_sap invoices: ownership spans (pre_sap, payment) and subprocess spans (intake, verification, approval, interface, payment) with Coupa event drill-through. Slice 3 adds blocker overlay intervals — labeled date ranges explaining why calendar time was consumed or blocked inside those spans. Still instrumentation/diagnosis; not Version 5 re-attribution and not a replacement for primary_cause or span_days. Version 5 funnel, heroes, slice 1–2 span row counts, mart_timing_phase_profile (7 rows), and every existing test must remain byte-for-byte unchanged.
+
+Status: PRE-BUILD — design locked; seeds and SQL not yet implemented. Row counts and reconciliation results to be filled after build.
+
+Decisions (D31–D45, slice 3 scope):
+
+D31 Grain: fct_inv_timing_overlay grain = (sap_inv_key, overlay_reason_code, interval_seq). interval_seq restarts per (sap_inv_key, overlay_reason_code).
+
+D32 Overlap: blocker intervals may overlap each other and may cross phase boundaries. Join to spans by date overlap only; never alter span_days. No global must-overlap-subprocess-span test; chronology plus hero tests are sufficient.
+
+D33 Fact duration: fact stores interval_start_date, interval_end_date, interval_days (datediff calendar days, D6). blocked_days, unblocked_days, reason_exposure_days are derived in bridge/view — not stored on fact.
+
+D34 Zero-day and rework semantics:
+
+Schema allows zero-day intervals; slice 3 curriculum does not author zero-day blockers except where noted below.
+on_hold, vendor_response_wait, payment_block: interval_days >= 1 in seeds.
+rework: failed-visit window from verification_start (submitted) of that visit through approval_end (rejected) that closes the visit. Successful revisit (span_seq > 1) is not tagged rework. reject → immediate resubmit (D30) is not a separate overlay.
+Curriculum 5100000020: rework 2024-11-04 → 2024-11-05, interval_days = 1; source_change_id anchors to submitted event 900067.
+payment_run_wait: naturally >= 1 when clearing after deadline.
+D35 Coverage naming (derived at invoice × subprocess phase):
+
+span_days — phase clock (existing; source of truth).
+blocked_days — distinct calendar days in phase where at least one blocker interval is active; blocked_days <= span_days.
+unblocked_days — span_days minus blocked_days.
+reason_exposure_days — per (phase, reason): overlap of that interval with that phase; sum across reasons may exceed blocked_days.
+D36 Reason vocabulary — five overlay codes only (seed_timing_overlay_reason_map):
+
+on_hold (reason_group hold, source_system coupa) — Coupa hold; informational per D27; does not pause span clock.
+rework (reason_group rework, source_system coupa) — failed visit submit → reject.
+vendor_response_wait (reason_group vendor, source_system manual) — supplier wait inside a phase.
+payment_block (reason_group block, source_system sap) — block duration set → release; not clearing snapshot.
+payment_run_wait (reason_group payment_execution, source_system manual) — deadline miss window.
+Not overlay codes (use spans instead): approval_queue, verification_backlog, interface_failure, integration_lag. Approval, verification, and interface spans already measure queue/wait time. Interface failure = subprocess interface span where span_days > 0 (e.g. 5100000016).
+
+Deferred reason codes: dispute, pending_receipt.
+
+D37 payment_run_wait: interval_start = discount_deadline_date, interval_end = clearing_date; only when clearing_date > discount_deadline_date and no overlapping payment_block on same days. Anchored to ownership payment span (deadline → clearing lens, D13), not subprocess payment duplicate. vs payment_block: no double-label same days (policy A); split after block release (policy C) noted for future production.
+
+D38 payment_block vs snapshot: payment_block_at_clearing on fct_inv_sap = point-in-time exclusion at clear. Overlay payment_block = duration during processing — separate grains; do not derive overlay from clearing snapshots.
+
+D39 Interface: no interface overlay in slice 3; read slow interface from subprocess interface span_days > 0.
+
+D40 Source: seed-only for slice 3 — raw_inv_timing_overlay → src_inv_timing_overlay → fct_inv_timing_overlay. Optional source_change_id → fct_inv_coupa_changes.coupa_change_id. Realistic production source integration deferred. No changes to raw_inv_coupa_changes or slice 2 span logic.
+
+D41 Reconciliation: blocked_days <= span_days per phase where testable. No requirement that sum(reason_exposure_days) = span_days. Overlays explain; spans measure.
+
+D42 Population: all 20 fct_inv_sap rows in scope; author intervals on curriculum BELNRs only. Open matched 5100000005, 5100000006, 5100000009: zero overlay rows in slice 3 seeds. SAP-only 5100000014, 5100000015, 5100000021: zero rows unless explicitly authored later.
+
+D43 Aggregation / mart: slice 3 ships fact plus fct_inv_timing_overlay_span view (date overlap join to fct_inv_timing_span). No mart in slice 3; portfolio coverage table possible in a later slice. mart_timing_phase_profile unchanged (7 rows).
+
+D44 Chronology (reason-specific bounds):
+
+on_hold, rework, vendor_response_wait, payment_block: interval within receipt_date → clearing_date when cleared; pre-SAP blockers may end <= sap_entry_date.
+payment_run_wait: discount_deadline_date → clearing_date.
+D45 Portfolio / regression (hard constraint): retrofit only — no new raw_inv_sap / raw_inv_coupa header rows. Do not change raw_inv_coupa_changes. Frozen after slice 3 build: fct_inv_coupa_changes 72; fct_inv_timing_span ownership 40; subprocess 102; total 142; mart_timing_phase_profile 7; Version 5 funnel 12/3/1/8; leakage_eur 123.20.
+
+Architecture:
+
+Branch C (new): raw_inv_timing_overlay → src_inv_timing_overlay → fct_inv_timing_overlay; join seed_timing_overlay_reason_map + fct_inv_sap.
+Bridge (view): fct_inv_timing_overlay_span — overlap join overlay intervals × fct_inv_timing_span (measured spans); derives blocked_days / reason_exposure_days at query time.
+Branches A + B (unchanged): fct_inv_timing_span ownership + subprocess; mart_timing_phase_profile.
+Contrast curriculum (existing BELNRs; retrofit only):
+
+5100000008 — on_hold in verification (link change 900031)
+5100000003 — payment_run_wait (deadline → clearing); timing hero, rich
+5100000019 — vendor_response_wait and/or on_hold; timing hero, rich
+5100000020 — rework submit → reject visit 1
+5100000017 — optional vendor_response_wait slice in verification
+5100000018 — optional on_hold or vendor_response_wait
+5100000016 — no overlay; interface span only
+5100000012 — zero rows (capture hero)
+5100000013 — zero rows (excluded hero)
+5100000014, 5100000015, 5100000021 — zero rows (SAP-only)
+5100000001, 5100000004 — zero rows (happy path)
+5100000002, 5100000005–0007, 0009, 0011 — zero unless filler needed
+New artifacts (to build):
+
+Seeds:
+
+seed_timing_overlay_reason_map.csv — five codes; columns overlay_reason_code, reason_group, source_system, description, is_active
+raw_inv_timing_overlay.csv — blocker intervals on curriculum BELNRs; quote_columns if hyphenated
+Models:
+
+src_inv_timing_overlay (view) — rename/cast only; build sap_inv_key
+fct_inv_timing_overlay (table) — grain D31; FK sap_inv_key → fct_inv_sap
+fct_inv_timing_overlay_span (view) — overlap join to fct_inv_timing_span
+Fact columns (minimum):
+
+sap_inv_key, overlay_reason_code, interval_seq, interval_start_date, interval_end_date, interval_days, reason_group, source_system, source_change_id (nullable), interval_notes (optional)
+Expected counts (to confirm on build):
+
+seed_timing_overlay_reason_map: 5 rows
+fct_inv_timing_overlay: TBD after seed author
+fct_inv_timing_span: 142 unchanged
+mart_timing_phase_profile: 7 unchanged
+Tests (to add):
+
+assert_fct_inv_timing_overlay_row_count
+assert_fct_inv_timing_overlay_unique_grain
+assert_fct_inv_timing_overlay_chronology (reason-specific bounds, D44)
+assert_fct_inv_timing_overlay_reason_map_coverage
+assert_fct_inv_timing_overlay_hero_scenarios (5100000003, 5100000008, 5100000019, 5100000020 — explicit IN lists)
+assert_fct_inv_timing_overlay_blocked_lte_span (curriculum BELNRs)
+Full dbt test suite: all slice 1 + slice 2 + Version 5 tests unchanged
+Do not add: global span-overlap test; sum(reason_exposure_days) = span_days; assert_fct_inv_timing_span_contrast_*; changes to fct_inv_timing_span SQL.
+
+Deferred (unchanged / slice 4+):
+
+dispute, pending_receipt overlay codes
+fct_inv_sap_changes / raw_inv_sap_changes (slice 4)
+Realistic auto-derivation of overlays from ERP/Coupa event streams
+mart_timing_blocker_coverage or similar portfolio mart
+buffer_consumption, runway_at_handoff columns, frozen benchmarks (slice 5)
+dominant_phase / primary_timing_subbucket (D7, D29)
+Coupa in-flight operational dashboard (D10)
+wrong_clock_confirmed
+payment_block vs payment_run_wait split after block release (policy C) — future production
+Run (after implementation):
+
+dbt seed --full-refresh --select seed_timing_overlay_reason_map raw_inv_timing_overlay dbt build --select fct_inv_timing_overlay+ fct_inv_timing_overlay_span+ dbt test
+
+Version 5 unchanged (hard constraint): funnel 12/3/1/8; leakage_eur 123.20; heroes 5100000003 timing, 5100000012 capture, 5100000013 excluded.
+
 Status: COMPLETE — built and tested 2026-09-20.
 
 Decisions (D30, gap-free event authoring):
@@ -1511,6 +1638,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-20
+Last updated: 2026-09-22
 
-Timing slice 1 complete (ownership 40 spans, mart 2 ownership rows). Slice 2 complete: fct_inv_coupa_changes (72 rows), seed_coupa_status_map, subprocess spans (intake/verification/approval/interface/payment), start_event_id/end_event_id, mart 7 rows, D30 gap-free event authoring. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: slice 3 overlay reasons or slice 4 fct_inv_sap_changes.
+Timing slice 1 complete (ownership 40 spans). Slice 2 complete (fct_inv_coupa_changes 72 rows, subprocess 102 spans, mart 7 rows, D30 gap-free authoring). Slice 3 PRE-BUILD locked (D31–D45): fct_inv_timing_overlay blocker intervals, five reason codes, blocked/unblocked coverage via fct_inv_timing_overlay_span view, no mart. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: implement slice 3 seeds/SQL, or slice 4 fct_inv_sap_changes.
