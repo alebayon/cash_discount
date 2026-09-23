@@ -17,3 +17,11 @@ seeds:
       quote_columns: true
   - name: seed_coupa_status_map
     description: Coupa invoice status to timing role vocabulary (D21).
+
+  - name: seed_timing_overlay_reason_map
+    description: Five overlay blocker reason codes (D36).
+    columns:
+      - name: overlay_reason_code
+        tests:
+          - unique
+          - not_null

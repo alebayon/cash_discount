@@ -1631,6 +1631,7 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 - **Default schema:** `DEV` (database `AP_MODEL`)
 - **Staging prefix:** `src_`
 - **Key tests:** uniqueness, not_null on primary keys
+-   **CSV handoff:** When proposing seed CSV content, always give markdown table + copy-paste CSV block.
 
 ---
 

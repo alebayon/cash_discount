@@ -1,0 +1,6 @@
+overlay_reason_code,reason_group,source_system,description,is_active
+on_hold,hold,coupa,Coupa invoice hold; informational per D27; does not pause span clock,true
+rework,rework,coupa,Failed visit window from verification_start (submitted) through approval_end (rejected),true
+vendor_response_wait,vendor,manual,Supplier response wait inside a subprocess phase,true
+payment_block,block,sap,SAP payment block duration from set through release; not clearing snapshot,true
+payment_run_wait,payment_execution,manual,Discount deadline miss window from discount_deadline_date through clearing_date,true

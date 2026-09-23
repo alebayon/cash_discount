@@ -1,0 +1,5 @@
+sap_doc_number,company_code,fiscal_year,overlay_reason_code,interval_seq,interval_start_date,interval_end_date,source_change_id,interval_notes
+5100000003,1000,2024,payment_run_wait,1,2024-04-11,2024-04-25,,Timing hero: deadline miss window
+5100000008,1000,2024,on_hold,1,2024-06-08,2024-06-09,900031,On hold mid-verification; Coupa change 900031
+5100000019,1000,2024,vendor_response_wait,1,2024-10-16,2024-10-18,,Slow verification contrast
+5100000020,1000,2024,rework,1,2024-11-04,2024-11-05,900067,Failed visit 1 submit to reject
