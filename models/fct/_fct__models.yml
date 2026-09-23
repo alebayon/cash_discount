@@ -373,3 +373,75 @@ models:
         description: Tie-break when multiple events share event_date (D24).
         tests:
           - not_null
+
+  - name: fct_inv_timing_overlay
+    description: >
+      Blocker overlay intervals per invoice (slice 3). Grain
+      (sap_inv_key, overlay_reason_code, interval_seq). Explains why time
+      was blocked inside spans; does not replace span_days or Version 5
+      attribution.
+    columns:
+      - name: sap_inv_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_inv_sap')
+                field: sap_inv_key
+      - name: overlay_reason_code
+        tests:
+          - not_null
+      - name: interval_seq
+        tests:
+          - not_null
+      - name: interval_start_date
+        tests:
+          - not_null
+      - name: interval_end_date
+        tests:
+          - not_null
+      - name: interval_days
+        tests:
+          - not_null
+      - name: reason_group
+        tests:
+          - not_null
+      - name: source_system
+        tests:
+          - not_null
+      - name: source_change_id
+        description: Optional Coupa change anchor for drill-through (D40).
+        tests:
+          - relationships:
+              arguments:
+                to: ref('fct_inv_coupa_changes')
+                field: coupa_change_id
+              config:
+                where: "source_change_id is not null"
+
+  - name: fct_inv_timing_overlay_span
+    description: >
+      Bridge view joining overlay intervals to measured timing spans by date
+      overlap. Derives reason_exposure_days per overlay x phase row (D32/D35).
+    columns:
+      - name: sap_inv_key
+        tests:
+          - not_null
+      - name: overlay_reason_code
+        tests:
+          - not_null
+      - name: interval_seq
+        tests:
+          - not_null
+      - name: phase_level
+        tests:
+          - not_null
+      - name: phase_code
+        tests:
+          - not_null
+      - name: span_seq
+        tests:
+          - not_null
+      - name: reason_exposure_days
+        tests:
+          - not_null
