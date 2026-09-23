@@ -26,13 +26,13 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
-2026-09-22 — Timing phase layer slice 3 pre-build (blocker overlay intervals)
+2026-09-22 — Timing phase layer slice 3 (blocker overlay intervals)
 
 Context:
 
 Slices 1–2 deliver phase-duration instrumentation on all 20 fct_inv_sap invoices: ownership spans (pre_sap, payment) and subprocess spans (intake, verification, approval, interface, payment) with Coupa event drill-through. Slice 3 adds blocker overlay intervals — labeled date ranges explaining why calendar time was consumed or blocked inside those spans. Still instrumentation/diagnosis; not Version 5 re-attribution and not a replacement for primary_cause or span_days. Version 5 funnel, heroes, slice 1–2 span row counts, mart_timing_phase_profile (7 rows), and every existing test must remain byte-for-byte unchanged.
 
-Status: PRE-BUILD — design locked; seeds and SQL not yet implemented. Row counts and reconciliation results to be filled after build.
+Status: COMPLETE — built and tested 2026-09-23.
 
 Decisions (D31–D45, slice 3 scope):
 
@@ -49,12 +49,14 @@ on_hold, vendor_response_wait, payment_block: interval_days >= 1 in seeds.
 rework: failed-visit window from verification_start (submitted) of that visit through approval_end (rejected) that closes the visit. Successful revisit (span_seq > 1) is not tagged rework. reject → immediate resubmit (D30) is not a separate overlay.
 Curriculum 5100000020: rework 2024-11-04 → 2024-11-05, interval_days = 1; source_change_id anchors to submitted event 900067.
 payment_run_wait: naturally >= 1 when clearing after deadline.
+
 D35 Coverage naming (derived at invoice × subprocess phase):
 
 span_days — phase clock (existing; source of truth).
 blocked_days — distinct calendar days in phase where at least one blocker interval is active; blocked_days <= span_days.
 unblocked_days — span_days minus blocked_days.
 reason_exposure_days — per (phase, reason): overlap of that interval with that phase; sum across reasons may exceed blocked_days.
+
 D36 Reason vocabulary — five overlay codes only (seed_timing_overlay_reason_map):
 
 on_hold (reason_group hold, source_system coupa) — Coupa hold; informational per D27; does not pause span clock.
@@ -62,8 +64,7 @@ rework (reason_group rework, source_system coupa) — failed visit submit → re
 vendor_response_wait (reason_group vendor, source_system manual) — supplier wait inside a phase.
 payment_block (reason_group block, source_system sap) — block duration set → release; not clearing snapshot.
 payment_run_wait (reason_group payment_execution, source_system manual) — deadline miss window.
-Not overlay codes (use spans instead): approval_queue, verification_backlog, interface_failure, integration_lag. Approval, verification, and interface spans already measure queue/wait time. Interface failure = subprocess interface span where span_days > 0 (e.g. 5100000016).
-
+Not overlay codes (use spans instead): approval_queue, verification_backlog, interface_failure, integration_lag. Interface failure = subprocess interface span where span_days > 0 (e.g. 5100000016).
 Deferred reason codes: dispute, pending_receipt.
 
 D37 payment_run_wait: interval_start = discount_deadline_date, interval_end = clearing_date; only when clearing_date > discount_deadline_date and no overlapping payment_block on same days. Anchored to ownership payment span (deadline → clearing lens, D13), not subprocess payment duplicate. vs payment_block: no double-label same days (policy A); split after block release (policy C) noted for future production.
@@ -72,7 +73,7 @@ D38 payment_block vs snapshot: payment_block_at_clearing on fct_inv_sap = point-
 
 D39 Interface: no interface overlay in slice 3; read slow interface from subprocess interface span_days > 0.
 
-D40 Source: seed-only for slice 3 — raw_inv_timing_overlay → src_inv_timing_overlay → fct_inv_timing_overlay. Optional source_change_id → fct_inv_coupa_changes.coupa_change_id. Realistic production source integration deferred. No changes to raw_inv_coupa_changes or slice 2 span logic.
+D40 Source: seed-only for slice 3 — raw_inv_timing_overlay → src_inv_timing_overlay → fct_inv_timing_overlay. Optional source_change_id → fct_inv_coupa_changes.coupa_change_id (YAML relationships test where not null; no join in fact SQL). No changes to raw_inv_coupa_changes or slice 2 span logic.
 
 D41 Reconciliation: blocked_days <= span_days per phase where testable. No requirement that sum(reason_exposure_days) = span_days. Overlays explain; spans measure.
 
@@ -84,74 +85,82 @@ D44 Chronology (reason-specific bounds):
 
 on_hold, rework, vendor_response_wait, payment_block: interval within receipt_date → clearing_date when cleared; pre-SAP blockers may end <= sap_entry_date.
 payment_run_wait: discount_deadline_date → clearing_date.
+
 D45 Portfolio / regression (hard constraint): retrofit only — no new raw_inv_sap / raw_inv_coupa header rows. Do not change raw_inv_coupa_changes. Frozen after slice 3 build: fct_inv_coupa_changes 72; fct_inv_timing_span ownership 40; subprocess 102; total 142; mart_timing_phase_profile 7; Version 5 funnel 12/3/1/8; leakage_eur 123.20.
 
 Architecture:
 
 Branch C (new): raw_inv_timing_overlay → src_inv_timing_overlay → fct_inv_timing_overlay; join seed_timing_overlay_reason_map + fct_inv_sap.
-Bridge (view): fct_inv_timing_overlay_span — overlap join overlay intervals × fct_inv_timing_span (measured spans); derives blocked_days / reason_exposure_days at query time.
+Bridge (view): fct_inv_timing_overlay_span — overlap join overlay intervals × fct_inv_timing_span (measured spans); derives reason_exposure_days at query time; blocked_days / unblocked_days roll up in BI.
 Branches A + B (unchanged): fct_inv_timing_span ownership + subprocess; mart_timing_phase_profile.
-Contrast curriculum (existing BELNRs; retrofit only):
 
-5100000008 — on_hold in verification (link change 900031)
-5100000003 — payment_run_wait (deadline → clearing); timing hero, rich
-5100000019 — vendor_response_wait and/or on_hold; timing hero, rich
-5100000020 — rework submit → reject visit 1
-5100000017 — optional vendor_response_wait slice in verification
-5100000018 — optional on_hold or vendor_response_wait
-5100000016 — no overlay; interface span only
-5100000012 — zero rows (capture hero)
-5100000013 — zero rows (excluded hero)
-5100000014, 5100000015, 5100000021 — zero rows (SAP-only)
-5100000001, 5100000004 — zero rows (happy path)
-5100000002, 5100000005–0007, 0009, 0011 — zero unless filler needed
-New artifacts (to build):
+Contrast curriculum (authored in raw_inv_timing_overlay):
 
-Seeds:
+| BELNR | overlay_reason_code | interval | source_change_id | Notes |
+|-------|---------------------|----------|------------------|-------|
+| 5100000003 | payment_run_wait | 2024-04-11 → 2024-04-25 (14d) | — | timing hero; deadline miss |
+| 5100000008 | on_hold | 2024-06-08 → 2024-06-09 (1d) | 900031 | verification hold |
+| 5100000019 | vendor_response_wait | 2024-10-16 → 2024-10-18 (2d) | — | slow verification |
+| 5100000020 | rework | 2024-11-04 → 2024-11-05 (1d) | 900067 | failed visit 1 only |
 
-seed_timing_overlay_reason_map.csv — five codes; columns overlay_reason_code, reason_group, source_system, description, is_active
-raw_inv_timing_overlay.csv — blocker intervals on curriculum BELNRs; quote_columns if hyphenated
-Models:
+Zero overlay rows: 5100000001, 5100000004, 5100000012, 5100000013, 5100000016, 5100000014, 5100000015, 5100000021, 5100000005, 5100000006, 5100000009, and remaining matched filler BELNRs. Optional 5100000017 / 5100000018 not authored in slice 3.
 
-src_inv_timing_overlay (view) — rename/cast only; build sap_inv_key
-fct_inv_timing_overlay (table) — grain D31; FK sap_inv_key → fct_inv_sap
-fct_inv_timing_overlay_span (view) — overlap join to fct_inv_timing_span
-Fact columns (minimum):
+Built artifacts:
 
-sap_inv_key, overlay_reason_code, interval_seq, interval_start_date, interval_end_date, interval_days, reason_group, source_system, source_change_id (nullable), interval_notes (optional)
-Expected counts (to confirm on build):
+Seeds: seed_timing_overlay_reason_map.csv (5 rows); raw_inv_timing_overlay.csv (4 rows).
+Models: src_inv_timing_overlay (view); fct_inv_timing_overlay (table); fct_inv_timing_overlay_span (view, materialized view).
+Fact columns: sap_inv_key, overlay_reason_code, interval_seq, interval_start_date, interval_end_date, interval_days, reason_group, source_system, source_change_id, interval_notes.
 
-seed_timing_overlay_reason_map: 5 rows
-fct_inv_timing_overlay: TBD after seed author
-fct_inv_timing_span: 142 unchanged
-mart_timing_phase_profile: 7 unchanged
-Tests (to add):
+Actual counts (confirmed on build):
 
-assert_fct_inv_timing_overlay_row_count
+| Metric | Value |
+|--------|-------|
+| seed_timing_overlay_reason_map rows | 5 |
+| raw_inv_timing_overlay rows | 4 |
+| fct_inv_timing_overlay rows | 4 |
+| fct_inv_timing_span total rows | 142 (unchanged) |
+| fct_inv_coupa_changes rows | 72 (unchanged) |
+| mart_timing_phase_profile rows | 7 (unchanged) |
+| Version 5 funnel | 12 / 3 / 1 / 8 |
+| leakage_eur | 123.20 |
+
+Reconciliation (tests pass):
+
+- Full dbt test suite green before and after slice 3 build.
+- blocked_days <= span_days on curriculum BELNRs (assert_fct_inv_timing_overlay_blocked_lte_span).
+- payment_run_wait on 5100000003 overlaps ownership payment span with reason_exposure_days = 14.
+- rework on 5100000020 does not appear on span_seq > 1.
+- source_change_id 900031 and 900067 relate to fct_inv_coupa_changes.
+
+Implementation notes:
+
+- fct_inv_timing_overlay_span uses date overlap: interval_start_date < span_end_date AND interval_end_date > span_start_date.
+- Hero test uses count(o.sap_inv_key) on left join (not count(*)) for zero-overlay BELNRs.
+- payment_block code in reason map only; no curriculum row in slice 3 seeds.
+
+Tests (added):
+
+assert_fct_inv_timing_overlay_row_count (4)
 assert_fct_inv_timing_overlay_unique_grain
-assert_fct_inv_timing_overlay_chronology (reason-specific bounds, D44)
+assert_fct_inv_timing_overlay_chronology
 assert_fct_inv_timing_overlay_reason_map_coverage
-assert_fct_inv_timing_overlay_hero_scenarios (5100000003, 5100000008, 5100000019, 5100000020 — explicit IN lists)
-assert_fct_inv_timing_overlay_blocked_lte_span (curriculum BELNRs)
-Full dbt test suite: all slice 1 + slice 2 + Version 5 tests unchanged
-Do not add: global span-overlap test; sum(reason_exposure_days) = span_days; assert_fct_inv_timing_span_contrast_*; changes to fct_inv_timing_span SQL.
+assert_fct_inv_timing_overlay_hero_scenarios
+assert_fct_inv_timing_overlay_blocked_lte_span
+Schema: models/fct/_fct__models.yml — fct_inv_timing_overlay + fct_inv_timing_overlay_span; source_change_id relationships → fct_inv_coupa_changes where not null.
 
-Deferred (unchanged / slice 4+):
+Run:
 
-dispute, pending_receipt overlay codes
-fct_inv_sap_changes / raw_inv_sap_changes (slice 4)
-Realistic auto-derivation of overlays from ERP/Coupa event streams
-mart_timing_blocker_coverage or similar portfolio mart
-buffer_consumption, runway_at_handoff columns, frozen benchmarks (slice 5)
-dominant_phase / primary_timing_subbucket (D7, D29)
-Coupa in-flight operational dashboard (D10)
-wrong_clock_confirmed
-payment_block vs payment_run_wait split after block release (policy C) — future production
-Run (after implementation):
-
-dbt seed --full-refresh --select seed_timing_overlay_reason_map raw_inv_timing_overlay dbt build --select fct_inv_timing_overlay+ fct_inv_timing_overlay_span+ dbt test
+dbt seed --full-refresh --select seed_timing_overlay_reason_map raw_inv_timing_overlay
+dbt build --select fct_inv_timing_overlay+ fct_inv_timing_overlay_span+
+dbt test
 
 Version 5 unchanged (hard constraint): funnel 12/3/1/8; leakage_eur 123.20; heroes 5100000003 timing, 5100000012 capture, 5100000013 excluded.
+
+Deferred (slice 4+): dispute/pending_receipt overlays; fct_inv_sap_changes; mart_timing_blocker_coverage; auto-derivation from ERP; payment_block vs payment_run_wait policy C split.
+
+---
+
+2026-09-19 — Timing phase layer slice 2 (Coupa subprocess split)
 
 Status: COMPLETE — built and tested 2026-09-20.
 
@@ -1592,36 +1601,44 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 
 ## Model inventory
 
-| Model | Layer | Grain | Notes |
-|-------|-------|-------|-------|
-| raw_vendor_sap | seed | one row per vendor | SAP LFA1 names; 7 rows in CSV |
-| seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
-| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 21 rows; incl. XREF2_HD, CPUDT, 5100000016–5100000021 |
+| Object | Layer | Grain | Notes |
+|--------|-------|-------|-------|
+| raw_vendor_sap | seed | one row per vendor | SAP LFA1 names; 7 rows |
+| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 21 rows; XREF2_HD, CPUDT, 5100000016–5100000021 |
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
 | raw_inv_coupa | seed | one row per invoice doc | 20 rows; quote_columns |
 | raw_inv_coupa_changes | seed | one row per Coupa revision | 72 rows; 17 matched invoices; quote_columns |
+| raw_inv_timing_overlay | seed | one row per blocker interval | 4 curriculum rows (5100000003/0008/0019/0020) |
+| seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
 | seed_coupa_status_map | seed | one row per Coupa status | 7 rows; D21 status_role vocabulary |
+| seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; D36 blocker vocabulary |
 | src_smoke_test | src (view) | — | Connection smoke test |
 | src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
-| src_inv_sap | src (view) | one row per AP document | Rename + sap_inv_key; clearing_date, sap_entry_date, discount_taken_amount, four *_at_clearing flags |
+| src_inv_sap | src (view) | one row per AP document | sap_inv_key; clearing_date, sap_entry_date, discount_taken_amount, four *_at_clearing flags |
 | src_vendor_coupa | src (view) | one row per supplier | Rename + cast; includes inactive |
 | src_inv_coupa | src (view) | one row per invoice doc | All doc types incl. credit note |
-| src_inv_coupa_changes | src (view) | one row per revision | Rename + cast only; event_at, event_date, revision_seq |
+| src_inv_coupa_changes | src (view) | one row per revision | event_at, event_date, revision_seq |
+| src_inv_timing_overlay | src (view) | one row per blocker interval | Rename/cast only; builds sap_inv_key |
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
-| dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows; is_active |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 20 rows; P1 funnel + Version 5 root-cause (all buckets covered) |
+| dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 20 rows; P1 funnel + Version 5 root-cause |
 | fct_inv_coupa | fct (table) | one row per Coupa invoice | 19 rows; 14 paid matched |
-| fct_inv_coupa_changes | fct (table) | coupa_change_id | 72 rows; FK coupa_id → fct_inv_coupa; status_role from seed |
-| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 142 rows; 40 ownership + 102 subprocess; start_event_id, end_event_id |
+| fct_inv_coupa_changes | fct (table) | coupa_change_id | 72 rows; status_role from seed_coupa_status_map |
+| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 142 rows; 40 ownership + 102 subprocess |
+| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 4 rows; FK sap_inv_key → fct_inv_sap |
+| fct_inv_timing_overlay_span | fct (view) | overlay interval × measured span overlap | reason_exposure_days derived; D32/D35 |
 | map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 17 confirmed matches |
-| mart_cash_discount_kpi | mart (table) | one row per reporting period | Headline funnel KPIs; leakage_eur 123.20 |
-| mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; leakage breakdown; reconciles to headline |
-| mart_timing_phase_profile | mart (table) | one row per period × phase_level × phase_code | 7 rows; measured spans by span_end_date (2 ownership + 5 subprocess) |
-| _dim__models.yml | schema | — | vendor_id + is_active tests (SAP + Coupa) |
-| _fct__models.yml | schema | — | SAP funnel + fct_inv_coupa + fct_inv_coupa_changes + fct_inv_timing_span |
+| mart_cash_discount_kpi | mart (table) | one row per reporting period | Headline funnel; leakage_eur 123.20 |
+| mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; reconciles to headline mart |
+| mart_timing_phase_profile | mart (table) | one row per period × phase_level × phase_code | 7 rows; 2 ownership + 5 subprocess phases |
+| _dim__models.yml | schema | — | dim_vendor_sap + dim_vendor_coupa tests |
+| _fct__models.yml | schema | — | fct_inv_sap funnel, Coupa, timing span, timing overlay |
 | _map__models.yml | schema | — | map_inv_sap_coupa bridge tests |
-| _mart__models.yml | schema | — | mart KPI + timing phase profile tests |
-| tests/ | singular | — | Version 5 bucket tests, mart by-cause, timing slice 1 + slice 2 reconciliation |---
+| _mart__models.yml | schema | — | mart KPI, by-cause, timing phase profile tests |
+| tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–3 overlay tests |
+| seeds/_seeds.yml | seed config | — | quote_columns on Coupa seeds; seed column tests |
+
+---
 
 ## Conventions (stable)
 
@@ -1632,6 +1649,7 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 - **Staging prefix:** `src_`
 - **Key tests:** uniqueness, not_null on primary keys
 -   **CSV handoff:** When proposing seed CSV content, always give markdown table + copy-paste CSV block.
+-   **Model inventory:** Keep the table in this file current when adding seeds, models, or a completed slice; update row counts after `dbt build`. Do not duplicate the full table in `.cursor/rules/project.mdc` — the rule file already points here via "Read docs/decisions.md".
 
 ---
 
@@ -1639,6 +1657,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23
 
-Timing slice 1 complete (ownership 40 spans). Slice 2 complete (fct_inv_coupa_changes 72 rows, subprocess 102 spans, mart 7 rows, D30 gap-free authoring). Slice 3 PRE-BUILD locked (D31–D45): fct_inv_timing_overlay blocker intervals, five reason codes, blocked/unblocked coverage via fct_inv_timing_overlay_span view, no mart. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: implement slice 3 seeds/SQL, or slice 4 fct_inv_sap_changes.
+Timing slice 1 complete (ownership 40 spans). Slice 2 complete (fct_inv_coupa_changes 72 rows, subprocess 102 spans, mart 7 rows, D30 gap-free authoring). Slice 3 complete: fct_inv_timing_overlay (4 rows) + fct_inv_timing_overlay_span view, five blocker codes, D31–D45. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: slice 3b portfolio mart (mart_timing_blocker_coverage) or slice 4 fct_inv_sap_changes.
