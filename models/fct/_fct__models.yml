@@ -445,3 +445,32 @@ models:
       - name: reason_exposure_days
         tests:
           - not_null
+
+  - name: fct_inv_timing_allocation
+    description: >
+      Timing-leakage priority allocation by phase and bucket (slice 4, D46–D49).
+      Grain (sap_inv_key, phase_level, phase_code, bucket_code); rows only when
+      priority_allocated_eur > 0. Reads fct_inv_timing_span and
+      fct_inv_timing_overlay_span; does not modify overlay layers.
+    columns:
+      - name: sap_inv_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_inv_sap')
+                field: sap_inv_key
+      - name: phase_level
+        tests:
+          - not_null
+      - name: phase_code
+        tests:
+          - not_null
+      - name: bucket_code
+        tests:
+          - not_null
+      - name: priority_allocated_eur
+        tests:
+          - not_null
+      - name: post_deadline_days
+        description: Deadline-to-clearing days on the invoice; repeated on bucket rows (D48/D61).
