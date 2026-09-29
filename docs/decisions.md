@@ -30,94 +30,95 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
-2026-09-28 — Timing bucket report (slice 4): priority allocation, buckets, actions
+2026-09-29 — Timing bucket report (slice 4): priority allocation, buckets, actions
 
 Context:
 
-Slice 4 turns fct_inv_timing_span and fct_inv_timing_overlay into a stakeholder narrative: phases and buckets ranked by priority_allocated_eur [POLICY], with owners, ACT NOW / WATCH, and vendors where relevant. Explainability beats precision. Labels on every metric class: [FACT] measured from models; [POLICY] declared allocation convention; [INFERENCE] hypothesis paired with an investigate step, never asserted as fact.
+Replaces the 2026-09-28 draft in full. Slice 4 turns timing-loss invoices into a stakeholder page: which phase to open, which bucket to act on, and which supplier to name. Explainability beats precision. priority_allocated_eur is a management allocation [POLICY], not “loss caused by” and not “recoverable”. no_recorded_blocker is an investigate step [INFERENCE], not a capacity finding. Measured days and euros that are sums of those allocations are [FACT].
 
-Design closed after two adversarial review rounds (spec PART 3, decisions D-A through D-M in spec). Do not re-open those without a new dated decision entry.
+Status: IN PROGRESS — fct_inv_timing_allocation added (payment + pre_posting SQL); marts/tests pending.
 
-Status: APPROVED — implementation 4a → 4b → 4c under D45; slice 4d curriculum blocked until D58-B build and re-freeze.
-
-Decisions (D46–D59, slice 4 scope):
+Decisions (D46–D57):
 
 D46 Scope and period [POLICY + FACT]:
-- In scope: fct_inv_sap rows where is_leakage and primary_cause = 'timing' (primary_cause_group = 'timing' on the same rows; use primary_cause in SQL and tests for consistency with mart_cash_discount_kpi_by_cause).
-- Period: same dbt vars reporting_period_start and reporting_period_end as mart_cash_discount_kpi and mart_cash_discount_kpi_by_cause. is_leakage already requires is_kpi_entitled, so clearing_date is in period by construction; do not add a redundant clearing_date filter unless documenting the anchor in comments.
-- Period anchor for this report: clearing_date (leakage is period-scoped by cash period). mart_timing_phase_profile unchanged: span_end_date anchor per D3.
-- Out of scope: structural, capture, and data_quality_error leakage; is_timing_contributor on structural rows; renegotiating discount terms as an operational action.
+- In scope: fct_inv_sap where is_leakage and primary_cause = 'timing' (use primary_cause in SQL and tests, consistent with mart_cash_discount_kpi_by_cause).
+- Period vars: reporting_period_start and reporting_period_end, same as the KPI marts. is_leakage already requires is_kpi_entitled, so clearing_date is in period. Do not add a second clearing_date filter. Comment the anchor.
+- This report is scoped by clearing_date. mart_timing_phase_profile stays on span_end_date (D3).
+- Out of scope: structural, capture, and data_quality_error leakage; renegotiating the discount deadline as an operational action.
 
-D47 Handoff facts [FACT]: On every in-scope invoice, report runway_at_handoff = discount_deadline_date - sap_entry_date and pre-posting share of window (pre_sap days / available_days). No euro allocation in this step.
+D47 Regime [POLICY]:
+- If discount_deadline_date >= sap_entry_date, ownership payment receives 100% of lost_discount_amount. Ignore pre-SAP length and pre-SAP blockers. Do not allocate to subprocess payment.
+- Else allocate across subprocess intake, verification, approval, and interface.
+- Deadline on the posting day is payment. The cliff is not parameterised.
 
-D48 Regime [POLICY]: If discount_deadline_date >= sap_entry_date: payment owns 100% of lost_discount_amount; ignore pre-SAP length and pre-SAP blockers; do not allocate to subprocess payment (D28). Else: allocate across subprocess phases intake, verification, approval, interface. payment_sla_days = 0; posted on deadline is payment failure; cliff not parameterised.
+D48 Phase weights [POLICY + FACT]:
+- Measured spans only. Computed inside fct_inv_timing_allocation. No fct_inv_timing_window.
+- Pre-posting visit weight = greatest(0, datediff('day', span_start_date, least(span_end_date, discount_deadline_date))). Sum visits to the phase. phase_eur = lost_discount_amount × phase_weight_days / sum(phase_weight_days).
+- Those weights sum to available_days (datediff from receipt to the deadline) when intake, verification, approval, and interface are measured and contiguous from receipt through the deadline.
+- If regime is pre_posting and any of those four phases is not measured, the invoice is out of this report. No partial allocation.
+- If total weight is 0, one unallocated row. Test that the curriculum has none.
+- Payment phase euro is 100% of the invoice. Bucket denominator is post-deadline days: datediff('day', discount_deadline_date, clearing_date). Payment span_days are not a KPI.
+- post_deadline_days is stored on the phase and repeated on its bucket rows. It carries €0.
 
-D49 Weights and windows [POLICY + FACT]: Grain (sap_inv_key, phase_code, span_seq); span_status = 'measured' only. Pre-posting: window_start = span_start_date; window_end = least(span_end_date, discount_deadline_date); weight = greatest(0, datediff('day', window_start, window_end)). Payment: single ownership payment row; window discount_deadline_date → clearing_date; allocation weight base for buckets; euros 100% to payment phase. post_deadline_days [FACT] per spec S4/S10. If total phase weight = 0, route euros to unallocated; test unallocated empty on curriculum.
+D49 Buckets [POLICY + FACT]:
+- Grain of fct_inv_timing_allocation: (sap_inv_key, phase_level, phase_code, bucket_code). Emit a row only when priority_allocated_eur > 0.
+- Read gross days from fct_inv_timing_overlay_span. Do not modify that view. Do not copy its join into this fact. Do not put euros on it.
+- Clip each bridge overlap to the phase weight window with greatest/least and datediff. Pre-posting window is span start through the deadline. Payment window is the deadline through clearing. No calendar generator and no 1/n split.
+- Intake and interface: one bucket each, intake_delay and interface_delay, equal to the phase euro. Ignore overlays on those phases. Test that no overlay interval overlaps an intake or interface span. Do not clamp. D32 is unchanged on the overlay fact and on the view.
+- Verification and approval buckets: vendor_response_wait, rework, on_hold, and no_recorded_blocker. gross_exposure_days is the clipped bridge exposure. If the sum of gross days is less than phase_weight_days, the gap is no_recorded_blocker. If the sum is greater, scale the blocker euros so they sum to the phase euro and the gap is €0. That scale-down is the accepted error when two blockers share a day.
+- Payment buckets, ownership payment only: payment_run_wait and payment_block from the clipped bridge, gap no_recorded_blocker. Same scale-down if the gross days exceed the post-deadline window. Policy A (D37) stays an authoring rule. Slice 4 does not expand days to enforce it.
+- 5100000003: ownership payment, payment_run_wait, 14 days, €17.80. 5100000019: ownership payment, no_recorded_blocker, 11 days, €11.00. The verification vendor-wait on 5100000019 takes none of that euro.
 
-D50 Euros [POLICY]: Additive ledger only. Bucket and phase metric name priority_allocated_eur — never “loss caused by phase” or “recoverable euros”. Rejected: non-additive distinct-associated euros as the ranking basis (spec D-J).
+D50 Euros [POLICY]:
+- Additive. Sum of priority_allocated_eur on an invoice equals lost_discount_amount. Sum over in-scope invoices equals mart_cash_discount_kpi_by_cause.leakage_eur where primary_cause = 'timing' (€28.80 on the current vars). Not the headline leakage_eur of all causes.
+- Never label the metric “caused by” or “recoverable”.
 
-D51 Day grain and buckets [POLICY + FACT]: Closed-open calendar days (D6). 1/n split for overlapping blocker reasons on a day. Bucket code no_recorded_blocker (not “capacity”). exclusive_blocker_days printed beside buckets. Bucket vocabulary per phase per spec S8; intake_delay and interface_delay only on intake/interface; no overlay intervals on intake or interface spans — assert in tests; fix seeds, do not clamp silently (spec D-H). Overlays may cross verification ↔ approval only.
+D51 Ranking and the page [POLICY]:
+- mart_timing_phase_impact grain: (reporting_period_start, reporting_period_end, phase_level, phase_code). Columns: invoice_count, priority_allocated_eur, post_deadline_days. Sort by euros. That is the page order. Current curriculum: one row, ownership payment, 2 invoices, €28.80.
+- mart_timing_bucket_impact grain: (reporting_period_start, reporting_period_end, phase_level, phase_code, bucket_code). Columns: invoice_count, gross_exposure_days, priority_allocated_eur, eur_share_of_phase, cumulative_eur_share, action_status.
+- Inside a phase, rank buckets by priority_allocated_eur. ACT = walk until cumulative share reaches 75% of the phase total, including the whole bucket that crosses the line. The rest are WATCH. WATCH stays in the mart and in the totals.
+- Tie-break on equal euros only: vendor_response_wait, then rework, then on_hold.
+- No per-invoice 75% cover. A short phase keeps its small euro share.
+- Current payment page: 75% of €28.80 is €21.60. payment_run_wait €17.80 is short of that, so both payment buckets are ACT.
+- rework: if it is ACT in verification or approval, the report prints one bullet on the earlier of those pages and adds the other phase’s rework euros into that bullet. The mart keeps both phase rows.
 
-D52 Slice 4 vs D32: D32 unchanged on facts (overlaps allowed in fct_inv_timing_overlay). Slice 4 adds enforcement tests and seed authoring rules for the report layer only.
+D52 Actions [POLICY]:
+- A bullet is a remedy, not a vendor. owner_role is a fixed case on bucket_code in the bucket mart (payment run, investigate unlabeled days, remove rework, remove supplier wait, release hold, remove intake delay, remove interface delay). No seed_timing_reason_owner. Prose titles stay in the report, not in SQL.
+- Suppliers are a group-by of fct_inv_timing_allocation joined to fct_inv_sap.vendor_id, for the ACT buckets on the page. There is no mart_timing_action_vendor.
+- is_concentrated when one vendor_id holds >= 60% of that bucket’s priority_allocated_eur. The flag only decides whether the bullet names the supplier. It does not change the remedy.
+- On the current page: 0000100003 holds 100% of payment_run_wait; 0000100004 holds 100% of the payment no_recorded_blocker bucket.
 
-D53 Payment buckets [POLICY + FACT]: Payment span length is not a KPI. payment_block causal only if active on discount_deadline_date (interval_start <= discount_deadline_date < interval_end). Binding block counts deadline → release or clearing. payment_run_wait = remaining post-deadline window days with no binding block; policy A — no day both payment_block and payment_run_wait (D37). Post-deadline days carry euro split in payment only (spec D-G). Slice 4 allocation does not join fct_inv_timing_overlay where overlay_reason_code = 'payment_run_wait'; payment_run_wait bucket days and euros are derived from the payment window and binding payment_block overlays only. Existing payment_run_wait overlay rows (slice 3, e.g. 5100000003) remain for bridge/hero tests, not for slice 4 bucket math. no_recorded_blocker on payment when overlay coverage is incomplete.
+D53 What is not built:
+- Rejected for this slice: fct_inv_timing_window, fct_inv_timing_regime, fct_inv_timing_window_day_reason, fct_inv_timing_bucket, mart_timing_action_vendor, a day generator, and the 1/n split. Gross clipped exposure is the estimate. exclusive_blocker_days is not stored.
+- fct_inv_timing_overlay_span remains the overlap view for every invoice, including non-timing rows, and remains the target of the slice 3 bridge tests.
 
-D54 Severity [FACT]: post_deadline_days beside every phase and bucket; zero euros attached.
+D54 Portfolio [POLICY]:
+- This build adds no raw_inv_sap, raw_inv_coupa, or raw_inv_coupa_changes rows. D45 frozen counts stay. Do not edit fct_inv_timing_span, fct_inv_timing_overlay, or fct_inv_timing_overlay_span.
+- Pre-posting allocation is untested until new BELNRs are added. Add them. Do not move dates on the existing heroes. Re-freeze funnel, leakage_eur, and row counts in a later entry after that build.
 
-D55 Ranking [POLICY]: Within phase, rank buckets by priority_allocated_eur; ACT NOW = buckets until cumulative share reaches 75% of phase total (include whole bucket that crosses line). WATCH below — never drop from table or totals. Tie-break on equal euros: vendor_response_wait, rework, on_hold. Cross-phase rework: ACT if it makes the cut in any phase; headline = sum across phases. Rank by euros not exposure days (spec D-L). No per-invoice 75% cover (spec D-K).
+Architecture:
 
-D56 Actions [POLICY + FACT]: Actions are remedies, not vendors. Owner from bucket/reason via seed_timing_reason_owner; vendors listed inside action by bucket euros; is_concentrated when vendor share of bucket priority_allocated_eur >= 0.60. Mart delivers act_or_watch, owner_role, bucket_code, euros, days, concentration; BI/templates own prose titles (D59).
+Inputs: fct_inv_sap, fct_inv_timing_span, fct_inv_timing_overlay_span. No new seed.
 
-D57 Evidence columns [FACT]: distinct_invoices and distinct_associated_eur per (period, phase_code, bucket_code) — non-additive context only; do not sum across buckets to reconcile KPI. distinct_associated_eur = sum of lost_discount_amount over distinct sap_inv_key with any row in that bucket (full invoice loss once per bucket).
+Persisted:
+- fct_inv_timing_allocation (table) — grain (sap_inv_key, phase_level, phase_code, bucket_code). CTEs only for regime, visit weights, and clipped gross exposure.
+- mart_timing_phase_impact (table).
+- mart_timing_bucket_impact (table).
 
-D58 Portfolio / D45 (curriculum):
-- D58-A (slices 4a–4c): D45 unchanged — no new raw_inv_sap / raw_inv_coupa header rows; no changes to raw_inv_coupa_changes; frozen counts unchanged. Current timing leakage (5100000003, 5100000019) routes to payment regime only; pre-posting branch untested on curriculum until 4d.
-- D58-B (slice 4d): Supersede D45 header-row freeze by adding new curriculum BELNRs (and matching Coupa/SAP seeds as needed) designed for pre_posting and overlay scenarios E1–E7b; accept new funnel, leakage_eur, and row-count freeze documented in a follow-up line after 4d build. Rejected for 4d: mutating existing hero BELNR dates in place (same 20 headers) — prefer additive BELNRs.
+Tests:
+- Sum of priority_allocated_eur equals timing leakage_eur on mart_cash_discount_kpi_by_cause.
+- 5100000003 and 5100000019 match D49. No pre-SAP euro on either.
+- Unallocated is empty.
+- No overlay interval overlaps intake or interface.
+- Phase mart has one row and both bucket rows are ACT, for the default vars.
+- Slice 3 overlay tests and D45 count tests stay green.
 
-D59 Slice 4 implementation choices (pre-build clarifications):
-- Measurability: is_in_timing_scope = false when regime = 'pre_posting' and any of intake, verification, approval, interface is not span_status = 'measured' for that invoice. If we cannot fully measure subprocess phases, the invoice is not in scope for this report (no partial allocation, no relaxed weight invariant).
-- fct_inv_timing_window: omit is_deadline_holder in v1; use window_end_date and weight only.
-- mart_timing_action_vendor: grain (reporting_period_start, reporting_period_end, phase_code, bucket_code, vendor_id); vendor_id from fct_inv_sap.vendor_id (SAP vendor key on the invoice fact).
-- Reconciliation: sum(priority_allocated_eur) over in-scope invoices = mart_cash_discount_kpi_by_cause.leakage_eur where primary_cause = 'timing' for the same period vars; not headline mart_cash_discount_kpi.leakage_eur (all causes).
+Run:
 
-D60 Physical model layering [implementation]:
-- Closed report logic unchanged: 1/n day split (D-E), exclusive_blocker_days, payment S9 — no gross-exposure pro-rata.
-- Calendar day expansion is required for that logic but is implemented as CTEs inside fct_inv_timing_allocation (closed-open datediff per D6), not as a persisted fct_inv_timing_window_day_reason table.
-- fct_inv_timing_bucket is not a separate relation; bucket day metrics (net_days, gross_exposure_days, exclusive_blocker_days, co_active_days, no_recorded_blocker_days) are computed in the same model chain and stored on fct_inv_timing_allocation at grain (sap_inv_key, phase_code, bucket_code).
-- fct_inv_timing_regime may be a view or inlined CTEs in fct_inv_timing_window; prefer a single fct_inv_timing_window (table) with regime and is_in_timing_scope on each invoice (or one row per invoice in a slim view) — do not require both regime view and window table unless debugging needs a separate object.
-- Persisted slice 4 objects (minimum): fct_inv_timing_window (table), fct_inv_timing_allocation (table), mart_timing_phase_impact, mart_timing_bucket_impact, mart_timing_action_vendor (table). Optional: fct_inv_timing_regime (view) only if window SQL stays unreadable without it.
-- Singular tests may query CTE logic via the allocation model or via tests that ref window + allocation; tests named assert_fct_inv_timing_bucket_* remain valid as assertions against allocation columns at bucket grain.
-
-Closed alternatives (spec PART 3 — do not re-open): truncate weights at deadline (D-A); additive ledger (D-B); priority_allocated_eur naming (D-C); no_recorded_blocker (D-D); 1/n overlap (D-E); deadline-active payment_block (D-F); payment post-deadline euro base (D-G); no blockers on intake/interface (D-H); timing-only scope (D-I); rank on priority_allocated_eur 75% (D-J); no per-invoice 75% (D-K); rank by euros not days (D-L); clearing_date period anchor for this report (D-M).
-
-Architecture (planned):
-
-Inputs: fct_inv_sap, fct_inv_timing_span, fct_inv_timing_overlay, seed_timing_reason_owner (new; do not modify seed_timing_overlay_reason_map).
-
-Persisted models:
-- fct_inv_timing_window (table) — regime, is_in_timing_scope, per-visit weights/windows/post_deadline_days (slice 4a logic).
-- fct_inv_timing_allocation (table) — internal CTEs: calendar day spine per weight window, 1/n bucket_code per day, roll up bucket day metrics, priority_allocated_eur; grain (sap_inv_key, phase_code, bucket_code); unallocated row when total weight = 0 (slice 4b + 4c logic).
-- mart_timing_phase_impact, mart_timing_bucket_impact, mart_timing_action_vendor (tables) — period rollups from allocation + fct_inv_sap (slice 4c logic).
-
-Implementation slices (build order, not one table per slice):
-- 4a: fct_inv_timing_window + weight invariant tests.
-- 4b: bucket day reconciliation tests (against allocation model or interim build target).
-- 4c: euros + marts + KPI reconciliation tests.
-
-Day spine: Snowflake table(generator(rowcount => N)) inside fct_inv_timing_allocation SQL only — no dbt_utils (no packages.yml).
-
-Tests (representative): assert_fct_inv_timing_window_weights_sum_to_available_days; assert_fct_inv_timing_window_no_negative_weight; assert_fct_inv_timing_window_unique_grain; assert_no_overlay_interval_in_intake_or_interface; assert_fct_inv_timing_bucket_days_sum_to_window_days (allocation at bucket grain); assert_payment_block_and_run_wait_never_same_day; assert_mart_timing_phase_impact_reconciles_to_timing_by_cause; assert_fct_inv_timing_allocation_unallocated_is_empty; assert_fct_inv_timing_span_ownership_unchanged; mart_cash_discount_kpi_by_cause expected tests unchanged.
-
-D45 interaction: Slices 4a–4c must not change D45 frozen metrics. Slice 4d per D58-B only, with explicit re-freeze after build.
-
-Deferred (slice 4+ still open): dispute/pending_receipt overlays; fct_inv_sap_changes; auto-derivation from ERP; payment_block vs payment_run_wait policy C for production overlay authoring (slice 4 uses policy A + D53 derived payment_run_wait).
-
-Run (after models exist):
-
-dbt seed --full-refresh --select seed_timing_reason_owner
-dbt build --select fct_inv_timing_window+
-dbt build --select fct_inv_timing_allocation+ mart_timing_phase_impact+ mart_timing_bucket_impact+ mart_timing_action_vendor+
+dbt build --select fct_inv_timing_allocation+ mart_timing_phase_impact+ mart_timing_bucket_impact+
 dbt test
+
+Deferred: dispute and pending_receipt overlays; fct_inv_sap_changes; auto-derivation from ERP; payment_block versus payment_run_wait policy C; working-day calendar (model stays calendar days, D6).
 
 ---
 
@@ -1752,7 +1753,8 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-23
+Last updated: 2026-09-29
 
-Timing slice 1 complete (ownership 40 spans). Slice 2 complete (fct_inv_coupa_changes 72 rows, subprocess 102 spans, mart 7 rows, D30 gap-free authoring). Slice 3 complete: fct_inv_timing_overlay (4 rows) + fct_inv_timing_overlay_span view, five blocker codes, D31–D45. Version 5 unchanged (12/3/1/8; leakage_eur 123.20). Next: slice 3b portfolio mart (mart_timing_blocker_coverage) or slice 4 fct_inv_sap_changes.
-Slice 4 physical layer: lean — window + allocation (day 1/n as CTEs) + three marts (D60).
+Timing slice 1 complete (ownership 40 spans). Slice 2 complete (fct_inv_coupa_changes 72 rows, subprocess 102 spans, mart_timing_phase_profile 7 rows, D30). Slice 3 complete: fct_inv_timing_overlay 4 rows and fct_inv_timing_overlay_span view, D31–D45. Version 5 unchanged (12/3/1/8; leakage_eur 123.20).
+
+Slice 4 APPROVED, not built (D46–D57, 2026-09-29; replaces the 2026-09-28 draft). One fact, fct_inv_timing_allocation, reads fct_inv_timing_span for phase weights and fct_inv_timing_overlay_span for clipped gross blocker days. Two marts: mart_timing_phase_impact (page order) and mart_timing_bucket_impact (75% ACT/WATCH). No window fact, no day spine, no 1/n split, no vendor mart. Overlay span view stays. Current timing losses are payment only: 5100000003 €17.80 payment_run_wait, 5100000019 €11.00 no_recorded_blocker. Next: build the allocation fact and the two marts. Pre-posting curriculum is a later additive-BELNR entry.
