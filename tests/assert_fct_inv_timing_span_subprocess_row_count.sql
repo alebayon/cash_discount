@@ -2,4 +2,4 @@
 select count(*) as row_count
 from {{ ref('fct_inv_timing_span') }}
 where phase_level = 'subprocess'
-having count(*) != 107
+having count(*) != 112

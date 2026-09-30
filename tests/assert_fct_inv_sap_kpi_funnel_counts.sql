@@ -1,4 +1,4 @@
--- test to count number of cases in kpi funnel nodes
+-- test to count number of cases in kpi funnel nodes (curriculum v2 step 2)
 select *
 from (
     select
@@ -11,10 +11,10 @@ from (
         round(sum(case when is_leakage then lost_discount_amount else 0 end), 2) as leakage_amount_total
     from {{ ref('fct_inv_sap') }}
 ) actual
-where row_count != 21
-   or kpi_entitled != 13
+where row_count != 22
+   or kpi_entitled != 14
    or taken_true != 3
-   or not_taken != 10
+   or not_taken != 11
    or excluded_true != 1
-   or leakage_true != 9
-   or leakage_amount_total != 143.20
+   or leakage_true != 10
+   or leakage_amount_total != 159.20
