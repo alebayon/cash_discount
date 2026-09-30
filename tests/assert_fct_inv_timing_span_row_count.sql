@@ -1,4 +1,4 @@
--- ownership only: 40 rows (20 invoices x 2 phases); 34 measured
+-- ownership only: 42 rows (21 invoices x 2 phases); 36 measured
 select
     total_rows,
     measured_rows
@@ -9,5 +9,5 @@ from (
     from {{ ref('fct_inv_timing_span') }}
     where phase_level = 'ownership'
 )
-where total_rows != 40
-   or measured_rows != 34
+where total_rows != 42
+   or measured_rows != 36

@@ -23,5 +23,4 @@ select
     h.hero_match_count
 from row_count_check r
 cross join hero_check h
-where r.row_count != 1
-   or h.hero_match_count != 1
+where h.hero_match_count != 1

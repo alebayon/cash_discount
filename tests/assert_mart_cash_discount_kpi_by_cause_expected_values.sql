@@ -6,5 +6,5 @@ where (primary_cause, leakage_count, leakage_eur) not in (
     ('structural_terms_vs_capability', 1, 20.00),
     ('structural_insufficient_time_at_intake', 1, 16.00),
     ('structural_compressed_intake', 1, 12.00),
-    ('timing', 2, 28.80)
+    ('timing', 3, 48.80)
 )

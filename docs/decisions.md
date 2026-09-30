@@ -153,7 +153,6 @@ dbt test
 Deferred: dispute and pending_receipt overlays; fct_inv_sap_changes; auto-derivation from ERP; payment_block versus payment_run_wait policy C; working-day calendar (model stays calendar days, D6); pre-posting BELNR curriculum (D54).
 
 ---
----
 
 2026-09-22 — Timing phase layer slice 3 (blocker overlay intervals)
 
@@ -1761,12 +1760,14 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; reconciles to headline mart |
 | mart_timing_phase_profile | mart (table) | one row per period × phase_level × phase_code | 7 rows; 2 ownership + 5 subprocess phases |
 | _dim__models.yml | schema | — | dim_vendor_sap + dim_vendor_coupa tests |
-| _fct__models.yml | schema | — | fct_inv_sap funnel, Coupa, timing span, timing overlay |
 | _map__models.yml | schema | — | map_inv_sap_coupa bridge tests |
-| _mart__models.yml | schema | — | mart KPI, by-cause, timing phase profile tests |
-| tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–3 overlay tests |
+| _fct__models.yml | schema | — | fct_inv_sap funnel, Coupa, timing span, timing overlay, timing allocation |
+| _mart__models.yml | schema | — | mart KPI, by-cause, timing phase profile, timing bucket report |
+| tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–4 |
 | seeds/_seeds.yml | seed config | — | quote_columns on Coupa seeds; seed column tests |
-
+| fct_inv_timing_allocation | fct (table) | (sap_inv_key, phase_level, phase_code, bucket_code) | 2 rows; timing leakage only; slice 4 |
+| mart_timing_phase_impact | mart (table) | one row per period × phase_level × phase_code | 1 row; page order by euros |
+| mart_timing_bucket_impact | mart (table) | one row per period × phase × bucket_code | 2 rows; ACT/WATCH + owner_role |
 ---
 
 ## Conventions (stable)
