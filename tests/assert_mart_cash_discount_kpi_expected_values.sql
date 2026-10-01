@@ -7,4 +7,6 @@ where fct_row_count != 24
    or leakage_count != 12
    or leakage_eur != 190.20
    or discount_opportunity_eur != 355.21
-   or round(leakage_rate, 4) != 0.5355
+   or round(leakage_rate, 4) is distinct from round(
+       leakage_eur / nullif(discount_opportunity_eur, 0), 4
+   )

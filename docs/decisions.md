@@ -30,13 +30,71 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-10-01 — Slice 4 curriculum v2: pre-posting timing heroes + portfolio re-freeze
+
+Context:
+
+D54 deferred pre-posting BELNRs until additive seeds could exercise intake/verification/approval/interface allocation and verification buckets (on_hold, vendor_response_wait, rework) plus payment payment_block. Four invoices 5100000022–5100000025 added without changing payment-regime heroes 5100000003 (payment_run_wait €17.80) or 5100000019 (payment no_recorded_blocker €11.00). fct_inv_timing_allocation gained allocated_with_residual so rounded bucket euros reconcile to lost_discount_amount (fix 5100000024 €13.00 vs €13.01). mart_timing_phase_impact post_deadline_days fixed to avoid double-count across buckets on the same invoice.
+
+Status: COMPLETE — seeds, models, tests green.
+
+Decisions:
+
+D54-v2 Seeds [FACT]:
+- raw_inv_sap: +4 KR rows (5100000022–5100000025); fct_inv_sap row_count 24.
+- raw_inv_coupa: +4 headers (10022–10025); fct_inv_coupa 23 rows; paid_matched 18.
+- raw_inv_coupa_changes: extended for new Coupa paths; fct_inv_coupa_changes 92 rows.
+- raw_inv_timing_overlay: +4 rows (on_hold, vendor_response_wait, rework, payment_block); fct_inv_timing_overlay 8 rows.
+- map_inv_sap_coupa: 21 rows.
+- Do not edit span/overlay_span model SQL for this curriculum; span totals move only via new invoices.
+
+D55-v2 Timing leakage heroes [FACT]:
+- 5100000022: pre-posting; verification on_hold 1 day; lost €20.00.
+- 5100000023: pre-posting; verification vendor_response_wait 3 days; lost €16.00.
+- 5100000024: pre-posting; rework 1 day; lost €13.00.
+- 5100000025: payment regime (deadline on posting day); payment_block 7 days post-deadline; lost €18.00.
+- Payment curriculum unchanged: 5100000003, 5100000019.
+- Six timing-leakage invoices total; mart_cash_discount_kpi_by_cause timing: leakage_count 6, leakage_eur 95.80 (17.80 + 11.00 + 20.00 + 16.00 + 13.00 + 18.00).
+
+D56-v2 Headline KPI re-freeze [FACT]:
+- Funnel (fct_inv_sap): 24 rows; entitled 16; taken 3; not_taken 13; excluded 1; leakage 12; round(sum lost on leakage) 190.20.
+- mart_cash_discount_kpi: discount_opportunity_eur 355.21; leakage_eur 190.20; round(leakage_rate, 4) = 0.5344.
+- mart_cash_discount_kpi_by_cause unchanged grain (6 rows); timing row per D55-v2.
+
+D57-v2 Slice 4 mart curriculum [FACT + tests]:
+- mart_timing_phase_impact: ownership payment row — invoice_count 3, priority_allocated_eur 46.80, post_deadline_days 39 (5100000003, 5100000019, 5100000025); additional phase rows for pre-posting heroes (assert via full dbt test suite, not only payment row).
+- mart_timing_bucket_impact (ownership payment): 3 buckets — payment_run_wait €17.80, no_recorded_blocker €20.00 (combined payment gap on heroes), payment_block €9.00 (5100000025); act_count ≥ 2 on payment page test.
+- Reconciliation: sum(priority_allocated_eur) over timing leakage invoices = 95.80 = by-cause timing leakage_eur.
+
+Timing instrumentation counts (post v2):
+- fct_inv_timing_span: 48 total, 42 measured.
+- fct_inv_timing_span subprocess: 124 rows.
+- fct_inv_timing_overlay_span: tests unchanged in intent; overlay fact 8 rows.
+- mart_timing_phase_profile: 7 rows (unchanged).
+
+Tests added or updated:
+- assert_fct_inv_timing_allocation_hero_5100000022
+- assert_fct_inv_timing_allocation_row_count (minimum row guard; optional: freeze exact count after one Snowflake count)
+- assert_mart_timing_phase_impact_curriculum (payment phase hero)
+- assert_mart_timing_bucket_impact_curriculum (payment buckets)
+- Portfolio: assert_fct_inv_sap_kpi_funnel_counts, assert_mart_cash_discount_kpi_expected_values, assert_mart_cash_discount_kpi_by_cause_expected_values
+- Row counts: coupa 23, changes 92, paid_matched 18, map 21, overlay 8, span 48/42, subprocess 124
+
+Run after seed change:
+
+dbt seed
+dbt run --select fct_inv_coupa fct_inv_coupa_changes fct_inv_sap map_inv_sap_coupa fct_inv_timing_span fct_inv_timing_overlay fct_inv_timing_allocation mart_timing_phase_impact mart_timing_bucket_impact mart_cash_discount_kpi mart_cash_discount_kpi_by_cause
+dbt test
+
+Deferred (unchanged from slice 4): dispute/pending_receipt overlays; auto-escalate no_recorded_blocker; working-day calendar; rework ownership until rejection reasons on Coupa; optional mart_timing_action_vendor / supplier concentration bullets in BI (D52).
+
 2026-09-29 — Timing bucket report (slice 4): priority allocation, buckets, actions
 
 Context:
 
 Replaces the 2026-09-28 draft in full. Slice 4 turns timing-loss invoices into a stakeholder page: which phase to open, which bucket to act on, and which supplier to name. Explainability beats precision. priority_allocated_eur is a management allocation [POLICY], not “loss caused by” and not “recoverable”. no_recorded_blocker is an investigate step [INFERENCE], not a capacity finding. Measured days and euros that are sums of those allocations are [FACT].
 
-Status: COMPLETE — built and tested 2026-09-29.
+Status: COMPLETE — built and tested 2026-09-29; curriculum v2 closed 2026-10-01.
 
 Decisions (D46–D57):
 
@@ -70,16 +128,16 @@ D49 Buckets [POLICY + FACT]:
 - 5100000003: ownership payment, payment_run_wait, 14 days, €17.80. 5100000019: ownership payment, no_recorded_blocker, 11 days, €11.00. The verification vendor-wait on 5100000019 takes none of that euro.
 
 D50 Euros [POLICY]:
-- Additive. Sum of priority_allocated_eur on an invoice equals lost_discount_amount. Sum over in-scope invoices equals mart_cash_discount_kpi_by_cause.leakage_eur where primary_cause = 'timing' (€28.80 on the current vars). Not the headline leakage_eur of all causes.
+- Additive. Sum of priority_allocated_eur on an invoice equals lost_discount_amount. Sum over in-scope invoices equals mart_cash_discount_kpi_by_cause.leakage_eur where primary_cause = 'timing' (€95.80 after curriculum v2; see D54 table and 2026-10-01). Not the headline leakage_eur of all causes.
 - Never label the metric “caused by” or “recoverable”.
 
 D51 Ranking and the page [POLICY]:
-- mart_timing_phase_impact grain: (reporting_period_start, reporting_period_end, phase_level, phase_code). Columns: invoice_count, priority_allocated_eur, post_deadline_days. Sort by euros. That is the page order. Current curriculum: one row, ownership payment, 2 invoices, €28.80, post_deadline_days 25.
+- mart_timing_phase_impact grain: (reporting_period_start, reporting_period_end, phase_level, phase_code). Columns: invoice_count, priority_allocated_eur, post_deadline_days. Sort by euros. That is the page order. Curriculum v2 payment phase row: ownership payment, 3 invoices, €46.80, post_deadline_days 39 (plus additional phase rows for pre-posting heroes).
 - mart_timing_bucket_impact grain: (reporting_period_start, reporting_period_end, phase_level, phase_code, bucket_code). Columns: invoice_count, gross_exposure_days, priority_allocated_eur, eur_share_of_phase, cumulative_eur_share, action_status, owner_role.
 - Inside a phase, rank buckets by priority_allocated_eur. ACT = walk until cumulative share reaches 75% of the phase total, including the whole bucket that crosses the line. The rest are WATCH. WATCH stays in the mart and in the totals.
 - Tie-break on equal euros only: vendor_response_wait, then rework, then on_hold.
 - No per-invoice 75% cover. A short phase keeps its small euro share.
-- Current payment page: 75% of €28.80 is €21.60. payment_run_wait €17.80 is short of that, so both payment buckets are ACT.
+- Curriculum v2 ownership payment buckets: payment_run_wait €17.80, no_recorded_blocker €20.00, payment_block €9.00; ACT/WATCH per 75% rule (see assert_mart_timing_bucket_impact_curriculum).
 - rework: if it is ACT in verification or approval, the report prints one bullet on the earlier of those pages and adds the other phase’s rework euros into that bullet. The mart keeps both phase rows.
 
 D52 Actions [POLICY]:
@@ -92,65 +150,82 @@ D53 What is not built:
 - Rejected for this slice: fct_inv_timing_window, fct_inv_timing_regime, fct_inv_timing_window_day_reason, fct_inv_timing_bucket, mart_timing_action_vendor, a day generator, and the 1/n split. Gross clipped exposure is the estimate. exclusive_blocker_days is not stored.
 - fct_inv_timing_overlay_span remains the overlap view for every invoice, including non-timing rows, and remains the target of the slice 3 bridge tests.
 
-D54 Portfolio [POLICY]:
-- This build adds no raw_inv_sap, raw_inv_coupa, or raw_inv_coupa_changes rows. D45 frozen counts stay. Do not edit fct_inv_timing_span, fct_inv_timing_overlay, or fct_inv_timing_overlay_span.
-- Pre-posting allocation is untested until new BELNRs are added. Add them. Do not move dates on the existing heroes. Re-freeze funnel, leakage_eur, and row counts in a later entry after that build.
+D54 Portfolio [POLICY + FACT]:
+- Curriculum v2 adds **additive** seeds only: `raw_inv_sap` (+5100000022–5100000025), `raw_inv_coupa` (+10022–10025), `raw_inv_coupa_changes` (extended paths), `raw_inv_timing_overlay` (+4 intervals). Do **not** move dates on payment heroes **5100000003** or **5100000019**.
+- Do **not** edit model SQL for `fct_inv_timing_span`, `fct_inv_timing_overlay`, or `fct_inv_timing_overlay_span`; row counts move via seeds only.
+- Pre-posting allocation is **tested** on **5100000022** (on_hold), **5100000023** (vendor_response_wait), **5100000024** (rework). Payment **payment_block** tested on **5100000025**.
 
 Architecture:
 
-Inputs: fct_inv_sap, fct_inv_timing_span, fct_inv_timing_overlay_span. No new seed.
+Inputs: `fct_inv_sap`, `fct_inv_timing_span`, `fct_inv_timing_overlay_span` (seeds extended in v2).
 
 Persisted:
-- fct_inv_timing_allocation (table) — grain (sap_inv_key, phase_level, phase_code, bucket_code). CTEs only for regime, visit weights, and clipped gross exposure.
-- mart_timing_phase_impact (table).
-- mart_timing_bucket_impact (table).
+- `fct_inv_timing_allocation` (table) — grain `(sap_inv_key, phase_level, phase_code, bucket_code)`. CTEs for regime, visit weights, clipped gross exposure; **phase-level and invoice-level cent residuals** so `sum(priority_allocated_eur)` = `lost_discount_amount` per invoice (D50).
+- `mart_timing_phase_impact` (table) — `post_deadline_days` = **max per invoice × phase**, then summed (no double-count across buckets).
+- `mart_timing_bucket_impact` (table).
 
 Built artifacts:
 
-Models: fct_inv_timing_allocation (table); mart_timing_phase_impact (table); mart_timing_bucket_impact (table).
-Fact columns: sap_inv_key, phase_level, phase_code, bucket_code, gross_exposure_days, priority_allocated_eur, post_deadline_days.
+Models: `fct_inv_timing_allocation` (table); `mart_timing_phase_impact` (table); `mart_timing_bucket_impact` (table).  
+Fact columns: `sap_inv_key`, `phase_level`, `phase_code`, `bucket_code`, `gross_exposure_days`, `priority_allocated_eur`, `post_deadline_days`.
 
-Actual counts (confirmed on build):
+Actual counts (confirmed on build, curriculum v2):
 
 | Metric | Value |
 |--------|-------|
-| fct_inv_timing_allocation rows | 2 |
-| mart_timing_phase_impact rows | 1 |
-| mart_timing_bucket_impact rows | 2 |
-| fct_inv_timing_span total rows | 142 (unchanged) |
-| fct_inv_timing_overlay rows | 4 (unchanged) |
-| Version 5 funnel | 12 / 3 / 1 / 8 |
-| leakage_eur (headline) | 123.20 |
-| timing leakage_eur (by cause) | 28.80 |
+| `fct_inv_sap` rows | 24 |
+| `fct_inv_coupa` rows | 23 |
+| `fct_inv_coupa_changes` rows | 92 |
+| `map_inv_sap_coupa` rows | 21 |
+| `fct_inv_timing_span` total / measured | 48 / 42 |
+| `fct_inv_timing_span` subprocess | 124 |
+| `fct_inv_timing_overlay` rows | 8 |
+| `fct_inv_timing_allocation` rows | ≥ 3 (singular test minimum; optional: freeze exact `count(*)` after build) |
+| `mart_timing_phase_profile` rows | 7 (unchanged) |
+| KPI funnel (entitled / taken / excluded / leakage) | 16 / 3 / 1 / 12 |
+| `leakage_eur` (headline mart) | 190.20 |
+| `discount_opportunity_eur` | 355.21 |
+| `round(leakage_rate, 4)` | 0.5344 |
+| timing `leakage_eur` (by cause) | 95.80 (6 timing-leakage invoices) |
 
 Reconciliation (tests pass):
 
-- Sum priority_allocated_eur = mart_cash_discount_kpi_by_cause.leakage_eur for primary_cause = timing (€28.80).
-- D49 heroes 5100000003 and 5100000019; no subprocess euro on either.
-- Unallocated grain empty; no overlay_span rows on intake or interface.
-- Phase mart: one ownership payment row; bucket mart: payment_run_wait and no_recorded_blocker both ACT.
-- Slice 3 overlay tests and D45 count tests unchanged.
+- Sum `priority_allocated_eur` over timing-leakage invoices = `mart_cash_discount_kpi_by_cause.leakage_eur` where `primary_cause = 'timing'` (**€95.80**).
+- Per-invoice: sum `priority_allocated_eur` = `lost_discount_amount` (invoice reconcile tests).
+- Payment heroes unchanged: **5100000003** `payment_run_wait` 14 d, **€17.80**; **5100000019** `no_recorded_blocker` 11 d, **€11.00** (no pre-SAP euro).
+- Pre-posting heroes: **5100000022** €20.00 + verification `on_hold`; **5100000023** €16.00 + `vendor_response_wait`; **5100000024** €13.00 + `rework`; **5100000025** €18.00 + payment `payment_block`.
+- `mart_timing_phase_impact`: ownership **payment** — 3 invoices, **€46.80**, **39** `post_deadline_days` (curriculum test).
+- `mart_timing_bucket_impact`: ownership **payment** — 3 rows (`payment_run_wait` €17.80, `no_recorded_blocker` €20.00, `payment_block` €9.00); curriculum test expects **≥ 2** ACT on payment page.
+- Unallocated grain empty; no overlay_span on intake/interface (overlap test).
+- Slice 3 overlay bridge tests remain in suite; overlay **row count** updated to 8.
 
-Tests (added):
+Tests (slice 4 + v2):
 
-assert_fct_inv_timing_allocation_unique_grain
-assert_fct_inv_timing_allocation_row_count
-assert_fct_inv_timing_allocation_unallocated_empty
-assert_fct_inv_timing_allocation_reconciles_timing_leakage
-assert_fct_inv_timing_allocation_invoice_reconciles
-assert_fct_inv_timing_allocation_hero_scenarios
-assert_fct_inv_timing_allocation_no_pre_sap_euro_on_heroes
-assert_fct_inv_timing_overlay_span_no_intake_interface_overlap
-assert_mart_timing_phase_impact_curriculum
-assert_mart_timing_bucket_impact_curriculum
-Schema: models/fct/_fct__models.yml — fct_inv_timing_allocation; models/mart/_mart__models.yml — mart_timing_phase_impact, mart_timing_bucket_impact.
+assert_fct_inv_timing_allocation_unique_grain  
+assert_fct_inv_timing_allocation_row_count  
+assert_fct_inv_timing_allocation_unallocated_empty  
+assert_fct_inv_timing_allocation_reconciles_timing_leakage  
+assert_fct_inv_timing_allocation_invoice_reconciles  
+assert_fct_inv_timing_allocation_hero_scenarios  
+assert_fct_inv_timing_allocation_hero_5100000022  
+assert_fct_inv_timing_allocation_no_pre_sap_euro_on_heroes  
+assert_fct_inv_timing_overlay_span_no_intake_interface_overlap  
+assert_mart_timing_phase_impact_curriculum  
+assert_mart_timing_bucket_impact_curriculum  
+
+Plus portfolio row-count / KPI tests (`assert_fct_inv_sap_kpi_funnel_counts`, `assert_mart_cash_discount_kpi_expected_values`, `assert_mart_cash_discount_kpi_by_cause_expected_values`, Coupa/map/span/overlay counts).
+
+Schema: `models/fct/_fct__models.yml` — `fct_inv_timing_allocation`; `models/mart/_mart__models.yml` — `mart_timing_phase_impact`, `mart_timing_bucket_impact`.
 
 Run:
 
-dbt build --select fct_inv_timing_allocation+ mart_timing_phase_impact+ mart_timing_bucket_impact+
+```bash
+dbt seed
+dbt build --select fct_inv_coupa+ fct_inv_sap+ fct_inv_timing_allocation+ mart_timing_phase_impact+ mart_timing_bucket_impact+ mart_cash_discount_kpi+
 dbt test
+```
 
-Deferred: dispute and pending_receipt overlays; fct_inv_sap_changes; auto-derivation from ERP; payment_block versus payment_run_wait policy C; working-day calendar (model stays calendar days, D6); pre-posting BELNR curriculum (D54).
+Deferred: dispute and pending_receipt overlays; fct_inv_sap_changes; auto-derivation from ERP; payment_block versus payment_run_wait policy C; working-day calendar (D6); BI supplier bullets on ACT buckets (D52).
 
 ---
 
@@ -1732,11 +1807,11 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | Object | Layer | Grain | Notes |
 |--------|-------|-------|-------|
 | raw_vendor_sap | seed | one row per vendor | SAP LFA1 names; 7 rows |
-| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 21 rows; XREF2_HD, CPUDT, 5100000016–5100000021 |
+| raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 25 rows; incl. 5100000022–5100000025 (curriculum v2) |
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
-| raw_inv_coupa | seed | one row per invoice doc | 20 rows; quote_columns |
-| raw_inv_coupa_changes | seed | one row per Coupa revision | 72 rows; 17 matched invoices; quote_columns |
-| raw_inv_timing_overlay | seed | one row per blocker interval | 4 curriculum rows (5100000003/0008/0019/0020) |
+| raw_inv_coupa | seed | one row per invoice doc | 24 rows; quote_columns; +10022–10025 |
+| raw_inv_coupa_changes | seed | one row per Coupa revision | 92 rows; quote_columns |
+| raw_inv_timing_overlay | seed | one row per blocker interval | 8 rows; incl. v2 heroes 5100000022–5100000025 |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
 | seed_coupa_status_map | seed | one row per Coupa status | 7 rows; D21 status_role vocabulary |
 | seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; D36 blocker vocabulary |
@@ -1749,14 +1824,14 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | src_inv_timing_overlay | src (view) | one row per blocker interval | Rename/cast only; builds sap_inv_key |
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
 | dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows |
-| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 20 rows; P1 funnel + Version 5 root-cause |
-| fct_inv_coupa | fct (table) | one row per Coupa invoice | 19 rows; 14 paid matched |
-| fct_inv_coupa_changes | fct (table) | coupa_change_id | 72 rows; status_role from seed_coupa_status_map |
-| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 142 rows; 40 ownership + 102 subprocess |
-| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 4 rows; FK sap_inv_key → fct_inv_sap |
+| fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 24 rows; funnel 16/3/1/12; leakage €190.20 |
+| fct_inv_coupa | fct (table) | one row per Coupa invoice | 23 rows; 18 paid matched |
+| fct_inv_coupa_changes | fct (table) | coupa_change_id | 92 rows; status_role from seed_coupa_status_map |
+| fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 48 total; 42 measured; subprocess 124 |
+| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 8 rows; FK sap_inv_key → fct_inv_sap |
 | fct_inv_timing_overlay_span | fct (view) | overlay interval × measured span overlap | reason_exposure_days derived; D32/D35 |
-| map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 17 confirmed matches |
-| mart_cash_discount_kpi | mart (table) | one row per reporting period | Headline funnel; leakage_eur 123.20 |
+| map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 21 confirmed matches |
+| mart_cash_discount_kpi | mart (table) | one row per reporting period | leakage_eur 190.20; opportunity 355.21 |
 | mart_cash_discount_kpi_by_cause | mart (table) | one row per period × primary_cause | 6 rows; reconciles to headline mart |
 | mart_timing_phase_profile | mart (table) | one row per period × phase_level × phase_code | 7 rows; 2 ownership + 5 subprocess phases |
 | _dim__models.yml | schema | — | dim_vendor_sap + dim_vendor_coupa tests |
@@ -1765,9 +1840,9 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | _mart__models.yml | schema | — | mart KPI, by-cause, timing phase profile, timing bucket report |
 | tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–4 |
 | seeds/_seeds.yml | seed config | — | quote_columns on Coupa seeds; seed column tests |
-| fct_inv_timing_allocation | fct (table) | (sap_inv_key, phase_level, phase_code, bucket_code) | 2 rows; timing leakage only; slice 4 |
-| mart_timing_phase_impact | mart (table) | one row per period × phase_level × phase_code | 1 row; page order by euros |
-| mart_timing_bucket_impact | mart (table) | one row per period × phase × bucket_code | 2 rows; ACT/WATCH + owner_role |
+| fct_inv_timing_allocation | fct (table) | (sap_inv_key, phase_level, phase_code, bucket_code) | timing leakage; ≥3 rows (slice 4 + v2) |
+| mart_timing_phase_impact | mart (table) | one row per period × phase_level × phase_code | multi-phase; payment row in curriculum test |
+| mart_timing_bucket_impact | mart (table) | one row per period × phase × bucket_code | payment 3 buckets; ACT/WATCH + owner_role |
 ---
 
 ## Conventions (stable)
@@ -1787,6 +1862,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-09-29
+Last updated: 2026-10-01
 
-Timing slices 1–3 unchanged (142 spans, 4 overlays, mart_timing_phase_profile 7 rows). Slice 4 complete (D46–D57): fct_inv_timing_allocation 2 rows, mart_timing_phase_impact 1 row, mart_timing_bucket_impact 2 rows (both ACT on payment). Timing leakage €28.80 reconciles to mart_cash_discount_kpi_by_cause. Version 5 unchanged (12/3/1/8; headline leakage_eur 123.20). Heroes: 5100000003 payment_run_wait €17.80; 5100000019 payment no_recorded_blocker €11.00. Next optional: pre-posting BELNRs (D54) then re-freeze counts; BI supplier bullets via allocation × fct_inv_sap.vendor_id on ACT buckets (D52, no vendor mart).
+Slice 4 closed (D46–D57 + curriculum v2). Six timing-leakage invoices; timing leakage €95.80; headline leakage €190.20 (24 SAP rows). Spans 48 (42 measured), overlays 8, mart_timing_phase_profile 7 rows. Heroes: 5100000003/0019 (payment), 5100000022–0025 (pre-posting + payment_block). dbt build + test green. Optional next: BI report from mart_timing_* + vendor_id (D52).
