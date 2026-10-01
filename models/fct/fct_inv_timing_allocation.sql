@@ -78,7 +78,7 @@ pre_posting_eligibility as (
 
 ),
 
-pre_posting_phase_eur as (
+pre_posting_phase_eur_base as (
 
     select
         w.sap_inv_key,
@@ -91,7 +91,7 @@ pre_posting_phase_eur as (
             inv.lost_discount_amount * w.phase_weight_days::float
             / e.total_weight_days,
             2
-        ) as phase_eur
+        ) as phase_eur_raw
     from pre_posting_phase_weights w
     inner join pre_posting_eligibility e
         on w.sap_inv_key = e.sap_inv_key
@@ -99,6 +99,34 @@ pre_posting_phase_eur as (
         on w.sap_inv_key = inv.sap_inv_key
     where inv.allocation_regime = 'pre_posting'
       and e.total_weight_days > 0
+
+),
+
+pre_posting_phase_eur as (
+
+    select
+        sap_inv_key,
+        phase_level,
+        phase_code,
+        phase_weight_days,
+        lost_discount_amount,
+        post_deadline_days,
+        case
+            when row_number() over (
+                partition by sap_inv_key
+                order by phase_weight_days desc, phase_code
+            ) = 1
+            then round(
+                phase_eur_raw
+                + (
+                    lost_discount_amount
+                    - sum(phase_eur_raw) over (partition by sap_inv_key)
+                ),
+                2
+            )
+            else phase_eur_raw
+        end as phase_eur
+    from pre_posting_phase_eur_base
 
 ),
 
@@ -378,7 +406,7 @@ unallocated_rows as (
 
 ),
 
-allocated as (
+allocated_union as (
 
     select
         sap_inv_key,
@@ -430,6 +458,36 @@ allocated as (
     from unallocated_rows
     where priority_allocated_eur > 0
 
+),
+
+allocated_with_residual as (
+
+    select
+        u.sap_inv_key,
+        u.phase_level,
+        u.phase_code,
+        u.bucket_code,
+        u.gross_exposure_days,
+        u.post_deadline_days,
+        case
+            when row_number() over (
+                partition by u.sap_inv_key
+                order by u.priority_allocated_eur desc, u.phase_code, u.bucket_code
+            ) = 1
+            then round(
+                u.priority_allocated_eur
+                + (
+                    inv.lost_discount_amount
+                    - sum(u.priority_allocated_eur) over (partition by u.sap_inv_key)
+                ),
+                2
+            )
+            else u.priority_allocated_eur
+        end as priority_allocated_eur
+    from allocated_union u
+    inner join timing_invoices inv
+        on inv.sap_inv_key = u.sap_inv_key
+
 )
 
 select
@@ -440,4 +498,5 @@ select
     gross_exposure_days,
     priority_allocated_eur,
     post_deadline_days
-from allocated
+from allocated_with_residual
+where priority_allocated_eur > 0

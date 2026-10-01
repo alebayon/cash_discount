@@ -6,3 +6,4 @@ sap_doc_number,company_code,fiscal_year,overlay_reason_code,interval_seq,interva
 5100000022,1000,2024,on_hold,1,2024-07-02,2024-07-03,900075,Pre-posting timing hero: verification on_hold
 5100000023,1000,2024,vendor_response_wait,1,2024-08-05,2024-08-07,,Pre-posting timing hero: verification vendor wait
 5100000024,1000,2024,rework,1,2024-09-21,2024-09-22,900083,Pre-posting timing hero: rework visit 1
+5100000025,1000,2024,payment_block,1,2024-11-11,2024-11-18,,Pre-posting curriculum v2: payment_block after deadline

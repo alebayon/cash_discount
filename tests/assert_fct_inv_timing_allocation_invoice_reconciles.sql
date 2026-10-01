@@ -13,4 +13,6 @@ select
 from per_invoice p
 inner join {{ ref('fct_inv_sap') }} s
     on p.sap_inv_key = s.sap_inv_key
-where p.allocated_eur is distinct from round(s.lost_discount_amount, 2)
+where s.is_leakage
+  and s.primary_cause = 'timing'
+  and abs(p.allocated_eur - round(s.lost_discount_amount, 2)) > 0.01

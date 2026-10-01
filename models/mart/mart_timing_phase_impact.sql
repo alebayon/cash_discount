@@ -24,24 +24,49 @@ invoice_phase_days as (
 
 ),
 
-aggregated as (
+euro_by_phase as (
 
     select
         '{{ period_start }}'::date as reporting_period_start,
         '{{ period_end }}'::date as reporting_period_end,
-        a.phase_level,
-        a.phase_code,
-        count(distinct a.sap_inv_key) as invoice_count,
-        round(sum(a.priority_allocated_eur), 2) as priority_allocated_eur,
-        sum(d.post_deadline_days) as post_deadline_days
-    from allocation a
-    inner join invoice_phase_days d
-        on a.sap_inv_key = d.sap_inv_key
-        and a.phase_level = d.phase_level
-        and a.phase_code = d.phase_code
+        phase_level,
+        phase_code,
+        count(distinct sap_inv_key) as invoice_count,
+        round(sum(priority_allocated_eur), 2) as priority_allocated_eur
+    from allocation
     group by
-        a.phase_level,
-        a.phase_code
+        phase_level,
+        phase_code
+
+),
+
+days_by_phase as (
+
+    select
+        phase_level,
+        phase_code,
+        sum(post_deadline_days) as post_deadline_days
+    from invoice_phase_days
+    group by
+        phase_level,
+        phase_code
+
+),
+
+aggregated as (
+
+    select
+        e.reporting_period_start,
+        e.reporting_period_end,
+        e.phase_level,
+        e.phase_code,
+        e.invoice_count,
+        e.priority_allocated_eur,
+        d.post_deadline_days
+    from euro_by_phase e
+    inner join days_by_phase d
+        on e.phase_level = d.phase_level
+        and e.phase_code = d.phase_code
 
 )
 

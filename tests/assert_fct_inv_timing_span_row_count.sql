@@ -9,5 +9,5 @@ from (
     from {{ ref('fct_inv_timing_span') }}
     where phase_level = 'ownership'
 )
-where total_rows != 44
-   or measured_rows != 38
+where total_rows != 48
+   or measured_rows != 42
