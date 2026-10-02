@@ -374,12 +374,37 @@ models:
         tests:
           - not_null
 
+  - name: fct_inv_sap_changes
+    description: >
+      SAP invoice change events (phase 1). One row per change document.
+      Grain sap_change_id. ZLSPR set/release via seed_sap_payment_block_map (D62).
+    columns:
+      - name: sap_change_id
+        tests:
+          - unique
+          - not_null
+      - name: sap_inv_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_inv_sap')
+                field: sap_inv_key
+      - name: block_event_role
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['set', 'release']
+      - name: event_date
+        tests:
+          - not_null
+
   - name: fct_inv_timing_overlay
     description: >
-      Blocker overlay intervals per invoice (slice 3). Grain
-      (sap_inv_key, overlay_reason_code, interval_seq). Explains why time
-      was blocked inside spans; does not replace span_days or Version 5
-      attribution.
+      Blocker overlay intervals per invoice (slice 3 + SAP phase 1). Grain
+      (sap_inv_key, overlay_reason_code, interval_seq). Seed/Coupa/manual rows
+      from src_inv_timing_overlay; SAP payment_block from int_inv_sap_payment_block_intervals (D60).
     columns:
       - name: sap_inv_key
         tests:
@@ -410,14 +435,20 @@ models:
         tests:
           - not_null
       - name: source_change_id
-        description: Optional Coupa change anchor for drill-through (D40).
+        description: Coupa or SAP change anchor for drill-through (D40/D60).
         tests:
           - relationships:
               arguments:
                 to: ref('fct_inv_coupa_changes')
                 field: coupa_change_id
               config:
-                where: "source_change_id is not null"
+                where: "source_change_id is not null and source_system = 'coupa'"
+          - relationships:
+              arguments:
+                to: ref('fct_inv_sap_changes')
+                field: sap_change_id
+              config:
+                where: "source_change_id is not null and source_system = 'sap'"
 
   - name: fct_inv_timing_overlay_span
     description: >

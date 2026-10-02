@@ -23,6 +23,8 @@ models:
   cash_discount:
     src:
       +materialized: view
+    int:
+      +materialized: ephemeral
     dim:
       +materialized: table
     fct:

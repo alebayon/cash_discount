@@ -1,4 +1,4 @@
-with overlays as (
+with from_seed as (
 
     select
         sap_inv_key,
@@ -9,6 +9,28 @@ with overlays as (
         source_change_id,
         interval_notes
     from {{ ref('src_inv_timing_overlay') }}
+
+),
+
+from_sap_payment_block as (
+
+    select
+        sap_inv_key,
+        overlay_reason_code,
+        interval_seq,
+        interval_start_date,
+        interval_end_date,
+        source_change_id,
+        interval_notes
+    from {{ ref('int_inv_sap_payment_block_intervals') }}
+
+),
+
+overlays as (
+
+    select * from from_seed
+    union all
+    select * from from_sap_payment_block
 
 ),
 
