@@ -36,7 +36,7 @@ Context:
 
 Slice 4 curriculum v2 (D54–D57) authored payment_block for hero 5100000025 in raw_inv_timing_overlay (7 days post-deadline, €18 timing leakage; payment bucket €9.00). Phase 1 introduces the planned SAP change lineage (raw_inv_sap_changes → src_inv_sap_changes → fct_inv_sap_changes) and derives payment_block intervals from ZLSPR-style set/release events instead of hand-authored overlay seed rows for that reason. SAP changes are post-posting instrumentation; slice-4 regime, allocation, and mart SQL are unchanged. Coupa pattern (fct_inv_coupa_changes + seed_coupa_status_map) is layering reference only.
 
-Status: IN PROGRESS — change to COMPLETE after dbt build + test green.
+Status: COMPLETE — seeds, models, tests green.
 
 Decisions:
 
@@ -1920,6 +1920,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-10-01
+Last updated: 2026-10-02
 
-Slice 4 closed (D46–D57 + curriculum v2). Six timing-leakage invoices; timing leakage €95.80; headline leakage €190.20 (24 SAP rows). Spans 48 (42 measured), overlays 8, mart_timing_phase_profile 7 rows. Heroes: 5100000003/0019 (payment), 5100000022–0025 (pre-posting + payment_block). dbt build + test green. Optional next: BI report from mart_timing_* + vendor_id (D52).
+SAP changes phase 1 (D58–D63): payment_block for 5100000025 from fct_inv_sap_changes; overlay fact 8 rows; slice-4 KPIs unchanged (timing leakage €95.80). dbt build + test green. Model inventory: update separately. Optional next: SAP phase 2 (ZFBDT/ZTERM); BI from mart_timing_* (D52).
