@@ -25,3 +25,18 @@ seeds:
         tests:
           - unique
           - not_null
+
+  - name: raw_inv_sap_changes
+    description: SAP CDHDR-style change events (phase 1 payment block hero).
+
+  - name: seed_sap_payment_block_map
+    description: ZLSPR value transitions to block set/release (D62).
+    columns:
+      - name: fname
+        tests:
+          - not_null
+      - name: block_event_role
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['set', 'release']

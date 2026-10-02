@@ -30,6 +30,62 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-10-01 — SAP invoice changes phase 1: payment_block overlays from change events
+
+Context:
+
+Slice 4 curriculum v2 (D54–D57) authored payment_block for hero 5100000025 in raw_inv_timing_overlay (7 days post-deadline, €18 timing leakage; payment bucket €9.00). Phase 1 introduces the planned SAP change lineage (raw_inv_sap_changes → src_inv_sap_changes → fct_inv_sap_changes) and derives payment_block intervals from ZLSPR-style set/release events instead of hand-authored overlay seed rows for that reason. SAP changes are post-posting instrumentation; slice-4 regime, allocation, and mart SQL are unchanged. Coupa pattern (fct_inv_coupa_changes + seed_coupa_status_map) is layering reference only.
+
+Status: IN PROGRESS — change to COMPLETE after dbt build + test green.
+
+Decisions:
+
+D58 Scope [POLICY]:
+- Phase 1: payment_block overlays only, from paired block set → release on fct_inv_sap_changes.
+- Hero 5100000025: interval 2024-11-11 → 2024-11-18 (7 calendar days); vendor 0000100004; curriculum euros and mart_timing_bucket_impact payment_block €9.00 unchanged.
+- Remove 5100000025 payment_block row from raw_inv_timing_overlay; fct_inv_timing_overlay remains 8 rows (7 seed + 1 derived).
+- Do not change fct_inv_timing_span or fct_inv_timing_overlay_span SQL. Do not change fct_inv_timing_allocation or mart_timing_* SQL for this slice.
+
+D59 Snapshot vs overlay [POLICY] — extends D38:
+- payment_block_at_clearing on fct_inv_sap remains clearing snapshot only (PAYBLK_CLR seed / exclusion funnel).
+- Overlay payment_block is duration during processing from change events; never derived from clearing snapshot flags.
+
+D60 Overlay sources [POLICY] — amends D40 for payment_block only:
+- on_hold, rework, vendor_response_wait, payment_run_wait: raw_inv_timing_overlay → src_inv_timing_overlay (unchanged).
+- payment_block (source_system sap): int_inv_sap_payment_block_intervals from fct_inv_sap_changes, unioned in fct_inv_timing_overlay with reason map + fct_inv_sap join.
+- source_change_id on SAP payment_block rows: set event sap_change_id; YAML relationships split by source_system (coupa → fct_inv_coupa_changes, sap → fct_inv_sap_changes).
+
+D61 Authoring [POLICY] — D37 policy A:
+- No calendar-day overlap between payment_run_wait and payment_block on the same sap_inv_key; enforce with singular test.
+- Policy C (split payment_run_wait after block release) remains deferred for production.
+
+D62 Seeds and map [FACT]:
+- raw_inv_sap_changes: synthetic CDHDR-style rows (minimal columns; CHANGENR → sap_change_id).
+- seed_sap_payment_block_map: fname + value_old/value_new → block_event_role (set | release).
+- seed_timing_overlay_reason_map: no change to payment_block / sap row.
+
+D63 Supersedes (narrow):
+- D54-v2 instruction not to edit fct_inv_timing_overlay SQL applies except union of SAP-derived payment_block (curriculum v2 2026-10-01 entry remains historical record).
+
+Deferred (phase 1 out of scope):
+- ZFBDT / ZTERM change events (phase 2).
+- Full CDHDR simulation; auto-derivation of all overlay reasons from ERP.
+- dispute / pending_receipt overlays; Coupa operational dashboard; entitlement-at-clearing snapshot.
+- Deriving rework, on_hold, vendor_response_wait from SAP.
+
+Tests (add or extend):
+- assert_fct_inv_sap_changes_row_count (hero pair).
+- assert_fct_inv_timing_overlay_hero_5100000025_payment_block.
+- assert_fct_inv_timing_overlay_no_run_wait_block_overlap (D37).
+- assert_fct_inv_timing_overlay_row_count remains 8; slice-4 curriculum tests unchanged.
+
+Run after implementation:
+
+dbt seed --select raw_inv_sap_changes raw_inv_timing_overlay seed_sap_payment_block_map
+dbt run --select src_inv_sap_changes fct_inv_sap_changes int_inv_sap_payment_block_intervals fct_inv_timing_overlay+
+dbt test
+
+
 2026-10-01 — Slice 4 curriculum v2: pre-posting timing heroes + portfolio re-freeze
 
 Context:
@@ -1855,6 +1911,8 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 - **Key tests:** uniqueness, not_null on primary keys
 -   **CSV handoff:** When proposing seed CSV content, always give markdown table + copy-paste CSV block.
 -   **Model inventory:** Keep the table in this file current when adding seeds, models, or a completed slice; update row counts after `dbt build`. Do not duplicate the full table in `.cursor/rules/project.mdc` — the rule file already points here via "Read docs/decisions.md".
+- **Decisions log handoff:** When the assistant proposes new or updated content for this file (decisions, policy, dated entries), deliver it as **self-contained copy-paste blocks** — one block per paste action (e.g. one dated decision entry per block). Do not split a single entry across multiple partial snippets.
+- **Seeds and models handoff:** When the assistant proposes a change to any seed file or dbt model (new file, replace file, or material edit), deliver the **complete file contents** (or the full SQL/YAML for that file) in a single copy-paste block, not diffs-only or “add this CTE” fragments unless you explicitly ask for a minimal patch.
 
 ---
 

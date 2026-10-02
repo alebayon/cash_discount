@@ -46,3 +46,7 @@ dbt build
 ## When a decision is made in chat
 
 Add a dated entry to `docs/decisions.md` so future chats stay aligned.
+## Handoff format (see also `docs/decisions.md` → Conventions)
+
+- Proposed **decisions.md** additions: one copy-paste block per entry or section.
+- Proposed **seed or model** changes: full file/script ready to copy-paste (complete CSV, complete `.sql`, or complete YAML for that file).
