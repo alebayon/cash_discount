@@ -39,4 +39,5 @@ seeds:
         tests:
           - not_null
           - accepted_values:
-              values: ['set', 'release']
+              arguments:
+                values: ['set', 'release']

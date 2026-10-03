@@ -281,7 +281,7 @@ dbt build --select fct_inv_coupa+ fct_inv_sap+ fct_inv_timing_allocation+ mart_t
 dbt test
 ```
 
-Deferred: dispute and pending_receipt overlays; fct_inv_sap_changes; auto-derivation from ERP; payment_block versus payment_run_wait policy C; working-day calendar (D6); BI supplier bullets on ACT buckets (D52).
+Deferred: dispute and pending_receipt overlays; SAP change expansion beyond phase 1 payment_block (ZFBDT/ZTERM, full CDHDR); auto-derivation from ERP; payment_block versus payment_run_wait policy C; working-day calendar (D6); BI supplier bullets on ACT buckets (D52).
 
 ---
 
@@ -415,7 +415,7 @@ dbt test
 
 Version 5 unchanged (hard constraint): funnel 12/3/1/8; leakage_eur 123.20; heroes 5100000003 timing, 5100000012 capture, 5100000013 excluded.
 
-Deferred (slice 4+): dispute/pending_receipt overlays; fct_inv_sap_changes; mart_timing_blocker_coverage; auto-derivation from ERP; payment_block vs payment_run_wait policy C split.
+Deferred (slice 4+): dispute/pending_receipt overlays; SAP change phase 2+ (ZFBDT/ZTERM, full CDHDR); mart_timing_blocker_coverage; auto-derivation from ERP; payment_block vs payment_run_wait policy C split.
 
 ---
 
@@ -527,7 +527,7 @@ Analytical reads (not tests):
 
 Version 5 unchanged: funnel 12/3/1/8; leakage_eur 123.20; heroes 0003 timing, 0012 capture, 0013 excluded.
 
-Deferred (slice 3+): overlay reason intervals; fct_inv_sap_changes; frozen benchmarks; Coupa operational dashboard; wrong_clock_confirmed. Subprocess split -> see 2026-09-19 slice 2 pre-build entry.
+Deferred (slice 3+): overlay reason intervals (SAP-derived beyond payment_block — see D58); frozen benchmarks; Coupa operational dashboard; wrong_clock_confirmed. Subprocess split -> see 2026-09-19 slice 2 pre-build entry.
 
 Run: dbt seed --full-refresh --select raw_inv_sap && dbt build --select fct_inv_timing_span+ mart_timing_phase_profile+ && dbt test
 
@@ -565,7 +565,7 @@ Decisions (D19–D29, slice 2 scope):
 - D26 fct_inv_coupa header: current state only; no enrichment to draft/submitted. Open matched rows remain approved (already true in seeds).
 - D27 on_hold: informational only — does not open or close phases; span state machine ignores it. Used on 5100000008 mid-verification as substitute for pending_receipt scenario.
 - D28 Reconciliation invariants (tests): where all four pre-SAP subprocess phases are measured, intake + verification + approval + interface span_days = ownership pre_sap span_days (exact). Exclude not_applicable / not_measurable from sum test. Subprocess payment must match ownership payment per sap_inv_key (days, status, dates). Ownership 40 rows unchanged vs Slice 1. Split row-count tests: ownership 40 + separate subprocess total. No assert_fct_inv_timing_span_contrast_* singular tests.
-- D29 Deferred unchanged: buffer_consumption, runway_at_handoff columns, dominant_phase / primary_timing_subbucket, Coupa in-flight operational dashboard (D10), frozen benchmarks (D16/D18), overlay reason intervals (slice 3), fct_inv_sap_changes (slice 4).
+- D29 Deferred unchanged: buffer_consumption, runway_at_handoff columns, dominant_phase / primary_timing_subbucket, Coupa in-flight operational dashboard (D10), frozen benchmarks (D16/D18), overlay reason intervals (slice 3), SAP change phase 2+ (slice 4+; phase 1 payment_block complete per D58).
 
 Subprocess phases (phase_level = subprocess):
 
@@ -1867,7 +1867,7 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
 | raw_inv_coupa | seed | one row per invoice doc | 24 rows; quote_columns; +10022–10025 |
 | raw_inv_coupa_changes | seed | one row per Coupa revision | 92 rows; quote_columns |
-| raw_inv_timing_overlay | seed | one row per blocker interval | 8 rows; incl. v2 heroes 5100000022–5100000025 |
+| raw_inv_timing_overlay | seed | one row per blocker interval | 7 rows; v2 pre-posting heroes; 5100000025 payment_block derived from SAP (D60) |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
 | seed_coupa_status_map | seed | one row per Coupa status | 7 rows; D21 status_role vocabulary |
 | seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; D36 blocker vocabulary |
@@ -1877,14 +1877,17 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | src_vendor_coupa | src (view) | one row per supplier | Rename + cast; includes inactive |
 | src_inv_coupa | src (view) | one row per invoice doc | All doc types incl. credit note |
 | src_inv_coupa_changes | src (view) | one row per revision | event_at, event_date, revision_seq |
+| src_inv_sap_changes | src (view) | one row per change event | sap_change_id; rename/cast from raw_inv_sap_changes |
 | src_inv_timing_overlay | src (view) | one row per blocker interval | Rename/cast only; builds sap_inv_key |
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
 | dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows |
 | fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 24 rows; funnel 16/3/1/12; leakage €190.20 |
 | fct_inv_coupa | fct (table) | one row per Coupa invoice | 23 rows; 18 paid matched |
 | fct_inv_coupa_changes | fct (table) | coupa_change_id | 92 rows; status_role from seed_coupa_status_map |
+| fct_inv_sap_changes | fct (table) | sap_change_id | 2 rows; block_event_role; FK sap_inv_key → fct_inv_sap (D58) |
+| int_inv_sap_payment_block_intervals | int (ephemeral) | one row per derived block interval | ZLSPR set→release; feeds fct_inv_timing_overlay (D60) |
 | fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 48 total; 42 measured; subprocess 124 |
-| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 8 rows; FK sap_inv_key → fct_inv_sap |
+| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 8 rows (7 seed + 1 SAP payment_block); FK sap_inv_key → fct_inv_sap |
 | fct_inv_timing_overlay_span | fct (view) | overlay interval × measured span overlap | reason_exposure_days derived; D32/D35 |
 | map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 21 confirmed matches |
 | mart_cash_discount_kpi | mart (table) | one row per reporting period | leakage_eur 190.20; opportunity 355.21 |
@@ -1892,13 +1895,15 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | mart_timing_phase_profile | mart (table) | one row per period × phase_level × phase_code | 7 rows; 2 ownership + 5 subprocess phases |
 | _dim__models.yml | schema | — | dim_vendor_sap + dim_vendor_coupa tests |
 | _map__models.yml | schema | — | map_inv_sap_coupa bridge tests |
-| _fct__models.yml | schema | — | fct_inv_sap funnel, Coupa, timing span, timing overlay, timing allocation |
+| _fct__models.yml | schema | — | fct_inv_sap funnel, Coupa, SAP changes, timing span, timing overlay, timing allocation |
 | _mart__models.yml | schema | — | mart KPI, by-cause, timing phase profile, timing bucket report |
-| tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–4 |
+| tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–4, SAP phase 1 (D58) |
 | seeds/_seeds.yml | seed config | — | quote_columns on Coupa seeds; seed column tests |
 | fct_inv_timing_allocation | fct (table) | (sap_inv_key, phase_level, phase_code, bucket_code) | timing leakage; ≥3 rows (slice 4 + v2) |
 | mart_timing_phase_impact | mart (table) | one row per period × phase_level × phase_code | multi-phase; payment row in curriculum test |
 | mart_timing_bucket_impact | mart (table) | one row per period × phase × bucket_code | payment 3 buckets; ACT/WATCH + owner_role |
+| raw_inv_sap_changes | seed | one row per change document | 2 rows; phase 1 ZLSPR hero 5100000025 (D62) |
+| seed_sap_payment_block_map | seed | (fname, value_old, value_new) | 2 rows; ZLSPR set/release roles (D62) |
 ---
 
 ## Conventions (stable)
@@ -1922,4 +1927,4 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 Last updated: 2026-10-02
 
-SAP changes phase 1 (D58–D63): payment_block for 5100000025 from fct_inv_sap_changes; overlay fact 8 rows; slice-4 KPIs unchanged (timing leakage €95.80). dbt build + test green. Model inventory: update separately. Optional next: SAP phase 2 (ZFBDT/ZTERM); BI from mart_timing_* (D52).
+SAP changes phase 1 (D58–D63): payment_block for 5100000025 from fct_inv_sap_changes; overlay fact 8 rows (7 seed + 1 derived); fct_inv_sap_changes 2 rows; slice-4 KPIs unchanged (timing leakage €95.80). dbt build + test green; model inventory updated. Optional next: SAP phase 2 (ZFBDT/ZTERM); BI from mart_timing_* (D52).
