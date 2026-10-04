@@ -30,6 +30,31 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-10-04 — Payment remainder is payment_run_wait
+
+D64 Payment window [POLICY] — replaces D37 authoring and D49 payment gap; adopts deferred policy C:
+- Scope for ownership payment: discount_deadline_date through clearing_date.
+- payment_block: SAP ZLSPR set → release, clipped to that window (unchanged, D58–D60).
+- payment_run_wait: every other day in that window. It is the remainder, not an observed blocker and not a hand-typed overlay.
+- No no_recorded_blocker bucket on ownership payment. Verification and approval gaps are unchanged.
+- Do not author payment_run_wait in raw_inv_timing_overlay. Remove the 5100000003 row. A full-window typed row would double-count once the remainder is derived.
+- Same invoice may carry payment_block and payment_run_wait on different days. The two intervals do not share a day.
+D64 implementation [POLICY]:
+- Derive payment_run_wait in `fct_inv_timing_overlay` (CTE chain: payment window → clip blocks → gap intervals → union). No `int_inv_sap_payment_run_wait_intervals` unless a second consumer is added later.
+- `seed_timing_overlay_reason_map`: payment_run_wait source_system = derived (not manual).
+D64 scope for derived payment_run_wait [POLICY] — policy A:
+- Derive only where `is_leakage` and `primary_cause = 'timing'` and payment regime (`discount_deadline_date >= sap_entry_date`) and `clearing_date > discount_deadline_date`.
+- Same population as timing payment-phase rows in `fct_inv_timing_allocation`. Do not derive on structural, capture, data_quality_error, or non-leakage clears (e.g. 5100000016, 5100000018, 5100000021, 5100000011).
+- Expected overlay rows: 6 seed + 3 derived payment_run_wait + 1 derived payment_block (5100000025) = 10.
+
+D65 Curriculum [FACT] — replaces the payment bucket freeze in D49 / D57-v2:
+- 5100000003: payment_run_wait, 14 days, €17.80.
+- 5100000019: payment_run_wait, 11 days, €11.00.
+- 5100000025: payment_block 7 days €9.00 (11–18 Nov), payment_run_wait 7 days €9.00 (18–25 Nov).
+- mart_timing_bucket_impact, ownership payment: payment_run_wait €37.80, payment_block €9.00. No payment no_recorded_blocker row.
+- Supplier concentration: Nordic €17.80 / €37.80 and FastPay €20.00 / €37.80, both under 60%. The run-wait line names no supplier.
+- Phase row unchanged: 3 invoices, €46.80, post_deadline_days 39. Headline €95.80 timing leakage unchanged.
+
 2026-10-01 — SAP invoice changes phase 1: payment_block overlays from change events
 
 Context:
@@ -1918,6 +1943,11 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 -   **Model inventory:** Keep the table in this file current when adding seeds, models, or a completed slice; update row counts after `dbt build`. Do not duplicate the full table in `.cursor/rules/project.mdc` — the rule file already points here via "Read docs/decisions.md".
 - **Decisions log handoff:** When the assistant proposes new or updated content for this file (decisions, policy, dated entries), deliver it as **self-contained copy-paste blocks** — one block per paste action (e.g. one dated decision entry per block). Do not split a single entry across multiple partial snippets.
 - **Seeds and models handoff:** When the assistant proposes a change to any seed file or dbt model (new file, replace file, or material edit), deliver the **complete file contents** (or the full SQL/YAML for that file) in a single copy-paste block, not diffs-only or “add this CTE” fragments unless you explicitly ask for a minimal patch.
+## Handoff format (mandatory)
+- Proposed **decisions.md** additions: one copy-paste block per entry (full section text).
+- Proposed **seed, model, test, or YAML** changes: **complete file contents** for every path mentioned — not bullet instructions like “update the test” or “add a CTE”.
+- If only one hunk changes, still provide either the **full file** or a **single fenced block** labeled with the exact path that can replace the entire file.
+- **No exceptions:** the reader must be able to implement without opening the chat for missing lines.
 
 ---
 

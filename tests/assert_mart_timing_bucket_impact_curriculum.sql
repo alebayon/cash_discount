@@ -1,4 +1,4 @@
--- D51: payment phase — original heroes + payment_block (curriculum v2 step 4)
+-- D51 / D65: payment phase — derived run_wait + SAP payment_block
 with buckets as (
     select
         count(*) as row_count,
@@ -7,16 +7,15 @@ with buckets as (
             when phase_level = 'ownership'
              and phase_code = 'payment'
              and bucket_code = 'payment_run_wait'
-             and priority_allocated_eur = 17.80
+             and priority_allocated_eur = 37.80
             then 1 else 0
         end) as payment_run_wait_ok,
         sum(case
             when phase_level = 'ownership'
              and phase_code = 'payment'
              and bucket_code = 'no_recorded_blocker'
-             and priority_allocated_eur = 20.00
             then 1 else 0
-        end) as no_recorded_blocker_ok,
+        end) as payment_no_recorded_blocker_rows,
         sum(case
             when phase_level = 'ownership'
              and phase_code = 'payment'
@@ -30,8 +29,8 @@ with buckets as (
 )
 select *
 from buckets
-where row_count != 3
-   or act_count < 2
+where row_count != 2
+   or act_count < 1
    or payment_run_wait_ok != 1
-   or no_recorded_blocker_ok != 1
+   or payment_no_recorded_blocker_rows != 0
    or payment_block_ok != 1

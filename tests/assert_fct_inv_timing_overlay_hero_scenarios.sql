@@ -26,7 +26,7 @@ expected_counts as (
             ('5100000012', 0),
             ('5100000013', 0),
             ('5100000016', 0),
-            ('5100000019', 1),
+            ('5100000019', 2),
             ('5100000020', 1)
     ) as v(doc_number, expected_overlay_row_count)
 ),
@@ -81,6 +81,10 @@ detail_failures as (
         (doc_number = '5100000019' and overlay_reason_code = 'vendor_response_wait' and interval_seq = 1
          and interval_start_date = '2024-10-16' and interval_end_date = '2024-10-18'
          and interval_days = 2 and source_change_id is null)
+        or
+        (doc_number = '5100000019' and overlay_reason_code = 'payment_run_wait' and interval_seq = 1
+         and interval_start_date = '2024-10-25' and interval_end_date = '2024-11-05'
+         and interval_days = 11 and source_change_id is null)
         or
         (doc_number = '5100000020' and overlay_reason_code = 'rework' and interval_seq = 1
          and interval_start_date = '2024-11-04' and interval_end_date = '2024-11-05'

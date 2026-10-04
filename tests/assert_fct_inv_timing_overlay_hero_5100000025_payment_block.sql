@@ -12,9 +12,9 @@ from {{ ref('fct_inv_sap') }} s
 inner join {{ ref('fct_inv_timing_overlay') }} o
     on s.sap_inv_key = o.sap_inv_key
 where s.doc_number = '5100000025'
+  and o.overlay_reason_code = 'payment_block'
   and not (
-      o.overlay_reason_code = 'payment_block'
-      and o.interval_seq = 1
+      o.interval_seq = 1
       and o.interval_start_date = '2024-11-11'
       and o.interval_end_date = '2024-11-18'
       and o.interval_days = 7

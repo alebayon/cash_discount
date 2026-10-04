@@ -50,3 +50,8 @@ Add a dated entry to `docs/decisions.md` so future chats stay aligned.
 
 - Proposed **decisions.md** additions: one copy-paste block per entry or section.
 - Proposed **seed or model** changes: full file/script ready to copy-paste (complete CSV, complete `.sql`, or complete YAML for that file).
+## Handoff format (mandatory)
+- Proposed **decisions.md** additions: one copy-paste block per entry (full section text).
+- Proposed **seed, model, test, or YAML** changes: **complete file contents** for every path mentioned — not bullet instructions like “update the test” or “add a CTE”.
+- If only one hunk changes, still provide either the **full file** or a **single fenced block** labeled with the exact path that can replace the entire file.
+- **No exceptions:** the reader must be able to implement without opening the chat for missing lines.

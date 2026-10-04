@@ -1,4 +1,4 @@
--- 4 rows: curriculum overlay intervals on 5100000003, 0008, 0019, 0020
+-- 6 seed + 3 derived payment_run_wait (timing leakage only, D64 A) + 1 derived payment_block
 select count(*) as row_count
 from {{ ref('fct_inv_timing_overlay') }}
-having count(*) != 8
+having count(*) != 10

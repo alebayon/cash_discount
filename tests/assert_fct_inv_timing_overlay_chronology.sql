@@ -1,4 +1,5 @@
 -- D44: reason-specific interval bounds vs fct_inv_sap milestones
+-- D64: payment_run_wait may be a segment inside [discount_deadline_date, clearing_date]
 select
     o.sap_inv_key,
     s.doc_number,
@@ -32,8 +33,8 @@ where
             s.discount_deadline_date is null
             or s.clearing_date is null
             or s.clearing_date <= s.discount_deadline_date
-            or o.interval_start_date is distinct from s.discount_deadline_date
-            or o.interval_end_date is distinct from s.clearing_date
+            or o.interval_start_date < s.discount_deadline_date
+            or o.interval_end_date > s.clearing_date
         )
     )
     or (
