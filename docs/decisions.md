@@ -30,6 +30,48 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-10-05 — Coupa-derived timing overlays; retire raw_inv_timing_overlay (overlay v2)
+
+Context:
+
+Hand-authored `raw_inv_timing_overlay` simulated a source table that does not exist in Coupa or SAP. Payment overlays were already derived (`payment_block` from SAP changes, `payment_run_wait` per D64). Pre-posting blockers should be derived from Coupa change history the same way. `vendor_response_wait` implied supplier-only wait without a Coupa status; replaced by dispute intervals from changes. Stale Snowflake objects `RAW_INV_TIMING_OVERLAY` / `SRC_INV_TIMING_OVERLAY` are dropped manually after file removal (dbt does not auto-drop removed models).
+
+Status: BUILT — seeds, `int_inv_coupa_overlay_intervals`, `fct_inv_timing_overlay`, tests, mart owner_role updated.
+
+Decisions:
+
+D75 Overlay sources v2 [POLICY] — supersedes D40/D60 seed path for Coupa/manual rows; amends D36 vocabulary:
+- Remove `raw_inv_timing_overlay`, `src_inv_timing_overlay`, and warehouse objects if still present.
+- Derive Coupa intervals in `int_inv_coupa_overlay_intervals` from `fct_inv_coupa_changes`, map `coupa_id` → `sap_inv_key` via `map_inv_sap_coupa` (matched invoices only).
+- `on_hold`: status `on_hold` → `interval_start` = `event_date`; `interval_end` = next change `event_date` on same `coupa_id` (order: `event_date`, `revision_seq`, `coupa_change_id`). Informational per D27; span clock unchanged.
+- `rework`: each `rejected` → from latest prior `submitted` on same `coupa_id` (`max(coupa_change_id)` &lt; reject id) through reject `event_date` (D20).
+- `inv_dispute`: Coupa change status `disputed` (informational in `seed_coupa_status_map`) → same open/close interval rule as `on_hold`. Overlay code `inv_dispute` is distinct from header status `disputed` and from `dispute_open_at_clearing` on `fct_inv_sap` (exclusion snapshot at clear; unchanged).
+- Union in `fct_inv_timing_overlay` with `int_inv_sap_payment_block_intervals` and derived `payment_run_wait` (D64; unchanged).
+- Retire `vendor_response_wait` from active vocabulary (removed from `seed_timing_overlay_reason_map`; not renamed).
+
+D76 Active overlay reason codes [POLICY] — amends D36/D48:
+- `on_hold`, `rework`, `inv_dispute`, `payment_block`, `payment_run_wait`.
+- Deferred overlay codes remain: `pending_receipt`; ServiceNow ticket intervals; sub-states inside dispute.
+- Coupa `disputed` on matched invoices is modeled via **changes**, not orphan header-only rows (10014 remains out of KPI funnel per D21).
+
+D77 Curriculum and tests [FACT]:
+- `raw_inv_coupa_changes`: add `disputed` on 10019 (`900093`, 2024-10-16 → pending 2024-10-18, 2d `inv_dispute`); 10023 (`900094`, 2024-08-05 → pending 2024-08-08, 3d `inv_dispute`). **94** rows in `fct_inv_coupa_changes`.
+- Heroes: 5100000019 verification `inv_dispute` + payment `payment_run_wait` (replaces verification `vendor_response_wait`); 5100000023 verification `inv_dispute` €16.00; on_hold/rework unchanged on 0008/0022/0020/0024; payment block/run-wait on 0003/0019/0025 unchanged.
+- `fct_inv_timing_overlay`: **10** rows (2 on_hold + 2 rework + 2 inv_dispute + 3 payment_run_wait + 1 payment_block).
+- `mart_timing_bucket_impact`: bucket `inv_dispute`, `owner_role` **resolve dispute**; tie-break `inv_dispute`, then rework, then on_hold (replaces `vendor_response_wait`).
+
+D78 Report copy [POLICY] — amends D52/D69 where they reference `vendor_response_wait`:
+- Verification/approval bucket prose: **resolve dispute** (or equivalent), not “remove supplier wait.”
+- `no_recorded_blocker` wording unchanged.
+
+Run:
+
+```bash
+dbt seed --select seed_coupa_status_map seed_timing_overlay_reason_map raw_inv_coupa_changes
+dbt run --select fct_inv_coupa_changes int_inv_coupa_overlay_intervals fct_inv_timing_overlay+
+dbt test
+```
+
 2026-10-04 — Stakeholder cash discount report (narrative spec)
 
 Context:
@@ -1987,11 +2029,10 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 25 rows; incl. 5100000022–5100000025 (curriculum v2) |
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
 | raw_inv_coupa | seed | one row per invoice doc | 24 rows; quote_columns; +10022–10025 |
-| raw_inv_coupa_changes | seed | one row per Coupa revision | 92 rows; quote_columns |
-| raw_inv_timing_overlay | seed | one row per blocker interval | 6 rows; pre-posting heroes + contrast overlays; no payment_run_wait (D64) |
+| raw_inv_coupa_changes | seed | one row per Coupa revision | 94 rows; quote_columns; +disputed on 10019/10023 (D75) |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
-| seed_coupa_status_map | seed | one row per Coupa status | 7 rows; D21 status_role vocabulary |
-| seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; D36 blocker vocabulary |
+| seed_coupa_status_map | seed | one row per Coupa status | 8 rows; +disputed informational (D75) |
+| seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; inv_dispute replaces vendor_response_wait (D75) |
 | src_smoke_test | src (view) | — | Connection smoke test |
 | src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
 | src_inv_sap | src (view) | one row per AP document | sap_inv_key; clearing_date, sap_entry_date, discount_taken_amount, four *_at_clearing flags |
@@ -1999,16 +2040,16 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | src_inv_coupa | src (view) | one row per invoice doc | All doc types incl. credit note |
 | src_inv_coupa_changes | src (view) | one row per revision | event_at, event_date, revision_seq |
 | src_inv_sap_changes | src (view) | one row per change event | sap_change_id; rename/cast from raw_inv_sap_changes |
-| src_inv_timing_overlay | src (view) | one row per blocker interval | Rename/cast only; builds sap_inv_key |
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
 | dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows |
 | fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 24 rows; funnel 16/3/1/12; leakage €190.20 |
 | fct_inv_coupa | fct (table) | one row per Coupa invoice | 23 rows; 18 paid matched |
-| fct_inv_coupa_changes | fct (table) | coupa_change_id | 92 rows; status_role from seed_coupa_status_map |
+| fct_inv_coupa_changes | fct (table) | coupa_change_id | 94 rows; status_role from seed_coupa_status_map |
 | fct_inv_sap_changes | fct (table) | sap_change_id | 2 rows; block_event_role; FK sap_inv_key → fct_inv_sap (D58) |
 | int_inv_sap_payment_block_intervals | int (ephemeral) | one row per derived block interval | ZLSPR set→release; feeds fct_inv_timing_overlay (D60) |
+| int_inv_coupa_overlay_intervals | int (ephemeral) | one row per Coupa-derived interval | on_hold, rework, inv_dispute (D75) |
 | fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 48 total; 42 measured; subprocess 124 |
-| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 10 rows (6 seed + 3 derived run-wait + 1 SAP block; D64 A); FK sap_inv_key → fct_inv_sap |
+| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 10 rows (Coupa derived + 3 run-wait + 1 SAP block; D75); FK sap_inv_key → fct_inv_sap |
 | fct_inv_timing_overlay_span | fct (view) | overlay interval × measured span overlap | reason_exposure_days derived; D32/D35 |
 | map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 21 confirmed matches |
 | mart_cash_discount_kpi | mart (table) | one row per reporting period | leakage_eur 190.20; opportunity 355.21 |
