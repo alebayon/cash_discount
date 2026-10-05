@@ -30,6 +30,74 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-10-04 — Stakeholder cash discount report (narrative spec)
+
+Context:
+
+Slice 4 marts and D64 payment_run_wait are built and tested. This entry freezes **how** the customer-facing full report is written in chat or BI copy — not new SQL. Numbers come from `mart_cash_discount_kpi`, `mart_cash_discount_kpi_by_cause`, `mart_timing_phase_impact`, `mart_timing_bucket_impact`, and `fct_inv_timing_allocation` (plus vendor names from `fct_inv_sap` / dim when D52 concentration applies).
+
+Status: PRE-BUILD COMPLETE — narrative and checklist only; no report mart or seed.
+
+Decisions:
+
+D67 Audience and voice [POLICY]:
+- Reader: AP / finance stakeholder for the uploading company; period is **closed**.
+- Tense: amounts describe **what happened**; actions describe **what to change next period** to avoid repeating loss. Do not imply discount can still be taken on cleared invoices.
+- Aggregate only: no per-invoice story lists at portfolio scale. Name a **supplier** only when one vendor holds **≥ 60%** of that **ACT** bucket’s `priority_allocated_eur` (D52). Exception: capture / DQ / terms rows may name the single hero supplier when count = 1.
+
+D68 Page order [POLICY]:
+1. Title + period + currency + calendar days footnote (D6).
+2. **Where the discount went** — funnel ASCII bars: Offered, Taken, Set aside, Lost (from headline mart).
+3. **Where the €{leakage_eur} was lost** — by `primary_cause` / group, descending euros; **Timing** row marked as opening below (not numbered 1–6 unless user asks).
+4. **What to change next period** — same cause order as §3; one short action per non-timing cause; timing deferred to §5.
+5. **Timing, opened** — only `primary_cause = 'timing'` leakage euros (must reconcile to by-cause timing row).
+   - Split: **Before SAP posting** vs **Payment** (from `mart_timing_phase_impact` payment vs pre-posting phases, euros desc).
+   - **Before posting:** phase bars (interface, verification, approval, intake); bucket bars inside verification and approval; ACT buckets first inside phase (75% rule from mart).
+   - **Payment:** two buckets only — **Waiting to clear after the deadline** (`payment_run_wait` aggregate) and **Payment block** (`payment_block`); no payment `no_recorded_blocker` (D64–D65).
+6. **Reference (not leakage)** — taken + excluded one-liners.
+7. **Action checklist** — see D71 (customer PDF). Optional internal footnote: table names (D72); omit from customer PDF unless requested.
+
+D69 Labels and forbidden wording [POLICY]:
+- Never: **“caused by”**, **“recoverable”**, **“recover €X”**, **“clear inside the discount window”** for invoices already cleared (use **schedule / propose payment while discount is still open**).
+- `priority_allocated_eur` in prose: **management split** of lost discount by days; sums reconcile to invoice loss and timing by-cause total (D50).
+- **Payment phase:** days after deadline with no block = **Waiting to clear after the deadline** (bucket `payment_run_wait`). Do **not** call this “no recorded reason.” **`payment_block`** = SAP block interval during the window.
+- **Verification / approval:** gap bucket = **In {phase}, no blocker recorded** — not “regular operations” as a fact; optional one line that queue vs active work needs labels or capacity / task-mining; do not claim task mining is in scope.
+- **Rework:** one line — record rejection reasons; Coupa may have free-text or configured reasons; this extract has status/timestamp only.
+- **Curriculum hero overlay ≠ largest euro bucket:** e.g. 5100000024 — rework overlay is one day; largest share may be interface; never “rework €{full invoice loss}.”
+
+D70 Timing payment copy [POLICY] — D64/D65:
+- Combined payment run-wait line at **€37.80** (0003 + 0019 + 0025 non-block days). Nordic **€17.80**, FastPay **€20.00** — neither ≥ 60% of €37.80 → **do not** name one supplier on the whole run-wait line; say “start with Nordic / FastPay path” in actions.
+- Payment block **€9.00** — smaller share / WATCH; release block during window or document forgoing discount.
+- Do not resurrect payment **`no_recorded_blocker`** or three-bucket payment table (superseded D65).
+
+D71 Action checklist [POLICY]:
+- Final section for customer deliverable.
+- Sort **by area** (process), then **€ descending within area**. Area order:
+  1. Data quality  
+  2. Terms / commercial  
+  3. Intake & structural (insufficient + compressed)  
+  4. Timing — pre-posting (intake → verification → approval → handoff/interface)  
+  5. Timing — payment (waiting to clear, then block)  
+  6. Capture  
+- Columns: **Area | Do next period | € (this period) | Start with** (owner/supplier hint). Optional **Done ☐** in Excel; PDF without Done column is fine.
+- Footnote on checklist: euros are **lost discount in scope** for the period, not a recovery promise.
+- Optional second table: **Timing only (€{timing leakage})** — buckets in **process order**, not euro order; checkbox column.
+
+D72 Data binding [FACT]:
+- Period: `reporting_period_start` / `reporting_period_end` (default 2024-01-01 – 2024-12-31).
+- Headline: `mart_cash_discount_kpi` (curriculum: 16 entitled, 3 taken, 1 excluded, 12 leakage, €190.20 / €355.21, rate 0.5355).
+- By cause: `mart_cash_discount_kpi_by_cause` (6 rows; timing €95.80 / 6 invoices).
+- Timing phases/buckets: `mart_timing_phase_impact`, `mart_timing_bucket_impact`, `action_status` ACT/WATCH, `owner_role` mapped to plain English (not SQL case strings in customer text).
+- Supplier concentration: group-by on `fct_inv_timing_allocation` × `fct_inv_sap.vendor_id` for ACT buckets only (analysis pattern `analyses/timing_bucket_act_vendors.sql`).
+
+D73 Out of scope for this report [POLICY]:
+- ZFBDT/ZTERM phase 2; new marts; Coupa ops dashboard; changing allocation SQL; working-day engine (narrative footnote only); per-invoice 75% cover; auto-escalate `no_recorded_blocker` (still open in Open questions for product, not this PDF).
+
+D74 When user asks for “full report” in Cursor [POLICY]:
+- Read this entry plus D46–D52, D64–D66, and current mart test expected values.
+- Output the full narrative per D68–D71 in one response (ASCII bars; tab-separated tables if user may paste to Excel).
+- Do not
+
 2026-10-04 — Payment remainder is payment_run_wait
 
 D64 Payment window [POLICY] — replaces D37 authoring and D49 payment gap; adopts deferred policy C:
@@ -55,6 +123,34 @@ D65 Curriculum [FACT] — replaces the payment bucket freeze in D49 / D57-v2:
 - Supplier concentration: Nordic €17.80 / €37.80 and FastPay €20.00 / €37.80, both under 60%. The run-wait line names no supplier.
 - Phase row unchanged: 3 invoices, €46.80, post_deadline_days 39. Headline €95.80 timing leakage unchanged.
 
+D65 supersedes (current mart / report totals only; older entries remain historical record):
+- `mart_timing_bucket_impact` ownership payment: **payment_run_wait €37.80 + payment_block €9.00** (two bucket rows). Supersedes D51 / D57-v2 freeze of three payment buckets (€17.80 run-wait, €20.00 payment `no_recorded_blocker`, €9.00 block).
+- D52 supplier concentration bullets for payment: Nordic **100%** of run-wait and FastPay **100%** of payment `no_recorded_blocker` — superseded. Under D65 neither vendor reaches 60% of **€37.80** combined run-wait; payment page run-wait line names no supplier.
+
+D66 Supersedes (narrow):
+- **D60** listed `payment_run_wait` from `raw_inv_timing_overlay` — superseded; derived in `fct_inv_timing_overlay` (D64). Seed holds on_hold / vendor_response_wait / rework only.
+- **D61** “policy C deferred” — superseded; split run-wait after block release is implemented in D64. Overlap test `assert_fct_inv_timing_overlay_no_run_wait_block_overlap` retained.
+- **D58 / D57-v2** `fct_inv_timing_overlay` **8 rows** — historical snapshot before D64; current **10 rows** (6 seed + 3 derived run-wait + 1 SAP `payment_block`).
+- **D44 chronology** full-window run-wait (start = deadline, end = clearing only) — superseded; D64 allows segments inside the payment window (hero 5100000025 tail 18–25 Nov).
+
+Tests (D64):
+- `assert_fct_inv_timing_overlay_row_count` → **10**
+- `assert_fct_inv_timing_overlay_chronology` (segment bounds)
+- `assert_fct_inv_timing_overlay_hero_5100000025_payment_run_wait`
+- `assert_fct_inv_timing_allocation_payment_no_no_recorded_blocker`
+- `assert_mart_timing_bucket_impact_curriculum` (€37.80 run-wait; 2 payment bucket rows)
+- `assert_fct_inv_timing_allocation_hero_scenarios` (0019/0025 `payment_run_wait`)
+
+Status: COMPLETE — built and tested 2026-10-04.
+
+Run:
+
+```bash
+dbt seed --select raw_inv_timing_overlay seed_timing_overlay_reason_map
+dbt run --select fct_inv_sap+ fct_inv_timing_overlay+ fct_inv_timing_allocation+ mart_timing_bucket_impact+
+dbt test
+```
+
 2026-10-01 — SAP invoice changes phase 1: payment_block overlays from change events
 
 Context:
@@ -68,7 +164,7 @@ Decisions:
 D58 Scope [POLICY]:
 - Phase 1: payment_block overlays only, from paired block set → release on fct_inv_sap_changes.
 - Hero 5100000025: interval 2024-11-11 → 2024-11-18 (7 calendar days); vendor 0000100004; curriculum euros and mart_timing_bucket_impact payment_block €9.00 unchanged.
-- Remove 5100000025 payment_block row from raw_inv_timing_overlay; fct_inv_timing_overlay remains 8 rows (7 seed + 1 derived).
+- Remove 5100000025 payment_block row from raw_inv_timing_overlay; fct_inv_timing_overlay **8 rows** at phase 1 close (7 seed + 1 derived; **10 rows after D64**).
 - Do not change fct_inv_timing_span or fct_inv_timing_overlay_span SQL. Do not change fct_inv_timing_allocation or mart_timing_* SQL for this slice.
 
 D59 Snapshot vs overlay [POLICY] — extends D38:
@@ -76,13 +172,13 @@ D59 Snapshot vs overlay [POLICY] — extends D38:
 - Overlay payment_block is duration during processing from change events; never derived from clearing snapshot flags.
 
 D60 Overlay sources [POLICY] — amends D40 for payment_block only:
-- on_hold, rework, vendor_response_wait, payment_run_wait: raw_inv_timing_overlay → src_inv_timing_overlay (unchanged).
+- on_hold, rework, vendor_response_wait: raw_inv_timing_overlay → src_inv_timing_overlay (unchanged). payment_run_wait from seed — **superseded by D64** (derived in fct_inv_timing_overlay).
 - payment_block (source_system sap): int_inv_sap_payment_block_intervals from fct_inv_sap_changes, unioned in fct_inv_timing_overlay with reason map + fct_inv_sap join.
 - source_change_id on SAP payment_block rows: set event sap_change_id; YAML relationships split by source_system (coupa → fct_inv_coupa_changes, sap → fct_inv_sap_changes).
 
 D61 Authoring [POLICY] — D37 policy A:
 - No calendar-day overlap between payment_run_wait and payment_block on the same sap_inv_key; enforce with singular test.
-- Policy C (split payment_run_wait after block release) remains deferred for production.
+- Policy C (split payment_run_wait after block release) — **implemented in D64** (was deferred here at phase 1 close).
 
 D62 Seeds and map [FACT]:
 - raw_inv_sap_changes: synthetic CDHDR-style rows (minimal columns; CHANGENR → sap_change_id).
@@ -102,7 +198,7 @@ Tests (add or extend):
 - assert_fct_inv_sap_changes_row_count (hero pair).
 - assert_fct_inv_timing_overlay_hero_5100000025_payment_block.
 - assert_fct_inv_timing_overlay_no_run_wait_block_overlap (D37).
-- assert_fct_inv_timing_overlay_row_count remains 8; slice-4 curriculum tests unchanged.
+- assert_fct_inv_timing_overlay_row_count **10** (was 8 at phase 1 close; D64); slice-4 curriculum tests updated per D65/D66.
 
 Run after implementation:
 
@@ -1892,7 +1988,7 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
 | raw_inv_coupa | seed | one row per invoice doc | 24 rows; quote_columns; +10022–10025 |
 | raw_inv_coupa_changes | seed | one row per Coupa revision | 92 rows; quote_columns |
-| raw_inv_timing_overlay | seed | one row per blocker interval | 7 rows; v2 pre-posting heroes; 5100000025 payment_block derived from SAP (D60) |
+| raw_inv_timing_overlay | seed | one row per blocker interval | 6 rows; pre-posting heroes + contrast overlays; no payment_run_wait (D64) |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
 | seed_coupa_status_map | seed | one row per Coupa status | 7 rows; D21 status_role vocabulary |
 | seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; D36 blocker vocabulary |
@@ -1912,7 +2008,7 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | fct_inv_sap_changes | fct (table) | sap_change_id | 2 rows; block_event_role; FK sap_inv_key → fct_inv_sap (D58) |
 | int_inv_sap_payment_block_intervals | int (ephemeral) | one row per derived block interval | ZLSPR set→release; feeds fct_inv_timing_overlay (D60) |
 | fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 48 total; 42 measured; subprocess 124 |
-| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 8 rows (7 seed + 1 SAP payment_block); FK sap_inv_key → fct_inv_sap |
+| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 10 rows (6 seed + 3 derived run-wait + 1 SAP block; D64 A); FK sap_inv_key → fct_inv_sap |
 | fct_inv_timing_overlay_span | fct (view) | overlay interval × measured span overlap | reason_exposure_days derived; D32/D35 |
 | map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 21 confirmed matches |
 | mart_cash_discount_kpi | mart (table) | one row per reporting period | leakage_eur 190.20; opportunity 355.21 |
@@ -1922,11 +2018,11 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | _map__models.yml | schema | — | map_inv_sap_coupa bridge tests |
 | _fct__models.yml | schema | — | fct_inv_sap funnel, Coupa, SAP changes, timing span, timing overlay, timing allocation |
 | _mart__models.yml | schema | — | mart KPI, by-cause, timing phase profile, timing bucket report |
-| tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–4, SAP phase 1 (D58) |
+| tests/ | singular | — | Version 5, mart, map, Coupa, timing slices 1–4, SAP phase 1 (D58), payment_run_wait D64 |
 | seeds/_seeds.yml | seed config | — | quote_columns on Coupa seeds; seed column tests |
 | fct_inv_timing_allocation | fct (table) | (sap_inv_key, phase_level, phase_code, bucket_code) | timing leakage; ≥3 rows (slice 4 + v2) |
 | mart_timing_phase_impact | mart (table) | one row per period × phase_level × phase_code | multi-phase; payment row in curriculum test |
-| mart_timing_bucket_impact | mart (table) | one row per period × phase × bucket_code | payment 3 buckets; ACT/WATCH + owner_role |
+| mart_timing_bucket_impact | mart (table) | one row per period × phase × bucket_code | payment 2 buckets (run-wait €37.80 + block €9.00; D65); ACT/WATCH + owner_role |
 | raw_inv_sap_changes | seed | one row per change document | 2 rows; phase 1 ZLSPR hero 5100000025 (D62) |
 | seed_sap_payment_block_map | seed | (fname, value_old, value_new) | 2 rows; ZLSPR set/release roles (D62) |
 ---
@@ -1955,6 +2051,6 @@ Fill in as you go; mirror in `.cursor/rules/project.mdc` if the AI should always
 
 <!-- Paste a short summary when switching to a new chat -->
 
-Last updated: 2026-10-02
+Last updated: 2026-10-04
 
-SAP changes phase 1 (D58–D63): payment_block for 5100000025 from fct_inv_sap_changes; overlay fact 8 rows (7 seed + 1 derived); fct_inv_sap_changes 2 rows; slice-4 KPIs unchanged (timing leakage €95.80). dbt build + test green; model inventory updated. Optional next: SAP phase 2 (ZFBDT/ZTERM); BI from mart_timing_* (D52).
+D64/D65/D66: payment_run_wait derived (timing leakage + payment regime only); overlay 10 rows; payment mart buckets run-wait €37.80 + block €9.00; no payment no_recorded_blocker. SAP phase 1 (D58–D63) unchanged for ZLSPR block. dbt test green. Optional next: stakeholder report pre-build in decisions.md; SAP phase 2 (ZFBDT/ZTERM).
