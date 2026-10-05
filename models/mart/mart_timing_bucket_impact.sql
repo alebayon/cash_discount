@@ -71,7 +71,7 @@ ranked as (
             order by
                 priority_allocated_eur desc,
                 case bucket_code
-                    when 'vendor_response_wait' then 1
+                    when 'inv_dispute' then 1
                     when 'rework' then 2
                     when 'on_hold' then 3
                     else 99
@@ -115,7 +115,7 @@ with_action as (
             when 'payment_block' then 'payment run'
             when 'no_recorded_blocker' then 'investigate unlabeled days'
             when 'rework' then 'remove rework'
-            when 'vendor_response_wait' then 'remove supplier wait'
+            when 'inv_dispute' then 'resolve dispute'
             when 'on_hold' then 'release hold'
             when 'intake_delay' then 'remove intake delay'
             when 'interface_delay' then 'remove interface delay'

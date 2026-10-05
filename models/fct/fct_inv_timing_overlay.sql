@@ -1,4 +1,4 @@
-with from_seed as (
+with from_coupa as (
 
     select
         sap_inv_key,
@@ -8,7 +8,7 @@ with from_seed as (
         interval_end_date,
         source_change_id,
         interval_notes
-    from {{ ref('src_inv_timing_overlay') }}
+    from {{ ref('int_inv_coupa_overlay_intervals') }}
 
 ),
 
@@ -186,7 +186,7 @@ from_derived_payment_run_wait as (
 
 overlays as (
 
-    select * from from_seed
+    select * from from_coupa
     union all
     select * from from_sap_payment_block
     union all

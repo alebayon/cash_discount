@@ -19,7 +19,7 @@ where
         o.overlay_reason_code in (
             'on_hold',
             'rework',
-            'vendor_response_wait',
+            'inv_dispute',
             'payment_block'
         )
         and (
@@ -38,7 +38,7 @@ where
         )
     )
     or (
-        o.overlay_reason_code in ('on_hold', 'vendor_response_wait', 'payment_block')
+        o.overlay_reason_code in ('on_hold', 'inv_dispute', 'payment_block')
         and coalesce(o.interval_days, 0) < 1
     )
     or (

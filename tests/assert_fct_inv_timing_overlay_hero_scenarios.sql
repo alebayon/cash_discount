@@ -78,9 +78,9 @@ detail_failures as (
          and interval_start_date = '2024-06-08' and interval_end_date = '2024-06-09'
          and interval_days = 1 and source_change_id = '900031')
         or
-        (doc_number = '5100000019' and overlay_reason_code = 'vendor_response_wait' and interval_seq = 1
-         and interval_start_date = '2024-10-16' and interval_end_date = '2024-10-18'
-         and interval_days = 2 and source_change_id is null)
+        (doc_number = '5100000019' and overlay_reason_code = 'inv_dispute' and interval_seq = 1
+        and interval_start_date = '2024-10-16' and interval_end_date = '2024-10-18'
+        and interval_days = 2 and source_change_id = '900093')
         or
         (doc_number = '5100000019' and overlay_reason_code = 'payment_run_wait' and interval_seq = 1
          and interval_start_date = '2024-10-25' and interval_end_date = '2024-11-05'

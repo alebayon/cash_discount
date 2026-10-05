@@ -402,9 +402,10 @@ models:
 
   - name: fct_inv_timing_overlay
     description: >
-      Blocker overlay intervals per invoice (slice 3 + SAP phase 1). Grain
-      (sap_inv_key, overlay_reason_code, interval_seq). Seed/Coupa/manual rows
-      from src_inv_timing_overlay; SAP payment_block from int_inv_sap_payment_block_intervals (D60).
+      Blocker overlay intervals per invoice. Grain
+      (sap_inv_key, overlay_reason_code, interval_seq). Coupa on_hold, rework,
+      and inv_dispute from int_inv_coupa_overlay_intervals; SAP payment_block
+      from int_inv_sap_payment_block_intervals; payment_run_wait derived (D64/D75).
     columns:
       - name: sap_inv_key
         tests:
