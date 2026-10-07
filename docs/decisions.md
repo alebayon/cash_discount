@@ -30,47 +30,678 @@ Update this file when you settle on naming, grain, business logic, or trade-offs
 
 <!-- Copy this block for each new decision -->
 
+2026-10-07 — Leakage root-cause waterfall Version 6: pre-SAP/payment handoff
+
+Context:
+
+Version 5 uses minimum_cycle_days = 5 and standard_cycle_days = 10 as end-to-end receipt_date → clearing_date benchmarks.
+
+Operational ownership is split into two phases already represented by fct_inv_timing_span:
+
+1. Pre-SAP/accounting: receipt_date → sap_entry_date
+2. Payment execution: sap_entry_date → clearing_date
+
+Version 6 introduces a factual ownership handoff at sap_entry_date and reserves part of the contractual discount window for payment execution.
+
+Status: PRE-BUILD APPROVED.
+
+D83 Version 6 policy [POLICY]
+
+Use calendar days throughout, consistent with D6:
+
+minimum_processing_days = 4
+standard_processing_days = 7
+minimum_payment_runway_days = 3
+
+Interpretation:
+
+- Four calendar days is the expedited minimum for pre-SAP processing.
+- Seven calendar days is the sustainable standard pre-SAP allowance.
+- Three calendar days must remain at SAP entry for automatic payment execution.
+- Standard combined requirement: 7 + 3 = 10 calendar days.
+- Minimum combined requirement: 4 + 3 = 7 calendar days.
+
+Processing bands:
+
+processing_available_days < 4
+    → insufficient
+
+4 <= processing_available_days < 7
+    → compressed but feasible
+
+processing_available_days >= 7
+    → standard processing time available
+
+The previous minimum_cycle_days = 5 must not be reinterpreted as minimum_processing_days. Version 5’s value was end-to-end; Version 6’s value is pre-SAP only.
+
+There is one payment threshold only. Do not introduce standard_payment_days, payment_exceeded_standard, or compressed/standard payment categories.
+
+Store the Version 6 values in an auditable versioned policy source rather than hardcoding them without identification. Echo the policy version and policy values on the invoice output.
+
+D84 SAP handoff and payment-date assumptions [POLICY]
+
+sap_entry_date is SAP CPUDT and is the authoritative payment handoff milestone.
+
+For this organisation:
+
+- CPUDT exists on every SAP document.
+- It is generated automatically by SAP.
+- It cannot be manually backdated or changed retroactively.
+- At SAP entry, the invoice is genuinely available for payment execution.
+
+Payment execution is considered automatic:
+
+- Payment runs can operate on weekends.
+- No routine manual execution is required after SAP entry.
+- The organisation has committed the funds when payment is executed.
+- Discount timeliness is evaluated using the SAP clearing/payment date.
+- Subsequent bank settlement delay is outside operational payment accountability.
+
+All calculations use Snowflake calendar-day, closed-open semantics:
+
+datediff('day', start_date, end_date)
+
+No business-day or holiday-calendar engine is introduced.
+
+D85 Version 6 derived fields [POLICY]
+
+Derive:
+
+available_days =
+    datediff(
+        'day',
+        receipt_date,
+        discount_deadline_date
+    )
+
+processing_available_days =
+    available_days - minimum_payment_runway_days
+
+Equivalent definition:
+
+processing_available_days =
+    datediff(
+        'day',
+        receipt_date,
+        latest_safe_sap_entry_date
+    )
+
+pre_sap_elapsed_days =
+    datediff(
+        'day',
+        receipt_date,
+        sap_entry_date
+    )
+
+runway_at_handoff =
+    datediff(
+        'day',
+        sap_entry_date,
+        discount_deadline_date
+    )
+
+latest_safe_sap_entry_date =
+    dateadd(
+        'day',
+        -minimum_payment_runway_days,
+        discount_deadline_date
+    )
+
+standard_sap_target_date =
+    dateadd(
+        'day',
+        standard_processing_days,
+        receipt_date
+    )
+
+operational_sap_due_date =
+    least(
+        standard_sap_target_date,
+        latest_safe_sap_entry_date
+    )
+
+deadline_miss_days =
+    datediff(
+        'day',
+        discount_deadline_date,
+        clearing_date
+    )
+
+handoff_reserve_shortfall_days =
+    greatest(
+        0,
+        minimum_payment_runway_days - runway_at_handoff
+    )
+
+latest_safe_sap_entry_date is the final handoff date that preserves payment’s required runway.
+
+operational_sap_due_date is the earlier of the normal processing target and the final safe contractual handoff.
+
+D86 Terms condition [POLICY]
+
+Contractual design is evaluated independently of actual early receipt.
+
+Receipt timing is outside organisational control. Exceptional early receipt or exceptional AP performance must not conceal contractual terms that are structurally below organisational capability.
+
+Terms severity:
+
+discount_days
+    < minimum_processing_days + minimum_payment_runway_days
+    → terms_below_minimum
+
+minimum_processing_days + minimum_payment_runway_days
+    <= discount_days
+    < standard_processing_days + minimum_payment_runway_days
+    → terms_below_standard
+
+discount_days
+    >= standard_processing_days + minimum_payment_runway_days
+    → terms_standard
+
+Under 4/7/3:
+
+discount_days < 7
+    → terms_below_minimum
+
+7 <= discount_days < 10
+    → terms_below_standard
+
+discount_days >= 10
+    → terms_standard
+
+Both terms_below_minimum and terms_below_standard produce primary_cause = structural_terms_vs_capability.
+
+terms_condition is retained as a diagnostic severity field.
+
+D87 Version 6 ordered waterfall [POLICY]
+
+Apply the following waterfall only to leakage rows:
+
+is_leakage =
+    is_kpi_entitled
+    AND NOT is_taken
+    AND NOT is_excluded
+
+Rule 0 — data_quality_error
+
+Classify as data_quality_error when required source or policy data is invalid, including:
+
+- receipt_date is null
+- sap_entry_date is null
+- clearing_date is null
+- discount_deadline_date is null
+- discount_days is null or <= 0
+- policy version or required policy values are null
+- minimum_processing_days <= 0
+- standard_processing_days < minimum_processing_days
+- minimum_payment_runway_days <= 0
+- receipt_date > sap_entry_date
+- sap_entry_date > clearing_date
+
+Result:
+
+primary_cause = 'data_quality_error'
+primary_cause_group = 'unclassified'
+primary_owner = 'unclassified'
+
+Rule 1 — capture
+
+Condition:
+
+clearing_date <= discount_deadline_date
+
+Result:
+
+primary_cause = 'capture'
+primary_cause_group = 'capture'
+primary_owner = 'capture_process'
+
+Interpretation:
+
+The invoice cleared while the discount was contractually available, but the discount was not captured.
+
+Processing compression is irrelevant to primary attribution when the deadline was met.
+
+Rule 2 — structural_terms_vs_capability
+
+Condition:
+
+discount_days
+    < standard_processing_days + minimum_payment_runway_days
+
+Under 4/7/3:
+
+discount_days < 10
+
+Result:
+
+primary_cause = 'structural_terms_vs_capability'
+primary_cause_group = 'structural'
+primary_owner = 'procurement_contracts'
+
+Rule 2 intentionally precedes actual intake and handoff performance.
+
+It is a normative design test. Early receipt or exceptional AP execution must not hide contract terms that do not provide the sustainable standard organisational window.
+
+Rules 3–6 apply to deadline misses where Rule 2 did not fire.
+
+Rule 3 — structural_insufficient_time_at_intake
+
+Conditions:
+
+processing_available_days < minimum_processing_days
+
+AND
+
+runway_at_handoff < minimum_payment_runway_days
+
+Under 4/7/3:
+
+processing_available_days < 4
+AND runway_at_handoff < 3
+
+Result:
+
+primary_cause = 'structural_insufficient_time_at_intake'
+primary_cause_group = 'structural'
+primary_owner = 'upstream_intake'
+
+Interpretation:
+
+At receipt, less than the expedited minimum processing time remained after reserving payment’s three days, and accounting did not recover sufficiently to deliver the payment reserve.
+
+The runway condition is mandatory.
+
+If accounting overcomes insufficient intake and hands the invoice to payment with runway_at_handoff >= 3, the primary cause is payment_execution. Do not retain structural_insufficient_time_at_intake as the primary cause after demonstrated recovery.
+
+Do not split Rule 3 according to pre_sap_elapsed_days. Do not introduce pre_sap_execution_insufficient_intake or any category that overlaps structural insufficiency with execution accountability.
+
+Rule 4 — pre_sap_execution_compressed
+
+Conditions:
+
+minimum_processing_days
+    <= processing_available_days
+    < standard_processing_days
+
+AND
+
+runway_at_handoff < minimum_payment_runway_days
+
+Under 4/7/3:
+
+4 <= processing_available_days < 7
+AND runway_at_handoff < 3
+
+Result:
+
+primary_cause = 'pre_sap_execution_compressed'
+primary_cause_group = 'timing'
+primary_owner = 'pre_sap'
+
+Interpretation:
+
+Accounting received a feasible but compressed processing window and failed to preserve the required payment runway.
+
+The category intentionally communicates both:
+
+- Accounting missed the safe handoff.
+- Accounting operated under genuine structural pressure.
+
+This replaces Version 5’s structural_compressed_intake behavior. Compression alone is not sufficient for this primary cause; the payment reserve must also have been missed.
+
+Rule 5 — pre_sap_execution_standard
+
+Conditions:
+
+processing_available_days >= standard_processing_days
+
+AND
+
+runway_at_handoff < minimum_payment_runway_days
+
+Under 4/7/3:
+
+processing_available_days >= 7
+AND runway_at_handoff < 3
+
+Result:
+
+primary_cause = 'pre_sap_execution_standard'
+primary_cause_group = 'timing'
+primary_owner = 'pre_sap'
+
+Interpretation:
+
+Accounting received its complete standard processing allowance but failed to preserve the required payment runway.
+
+Equality with standard_processing_days belongs to this category.
+
+Rule 6 — payment_execution
+
+Condition:
+
+runway_at_handoff >= minimum_payment_runway_days
+
+Under 4/7/3:
+
+runway_at_handoff >= 3
+
+The invoice subsequently cleared after discount_deadline_date.
+
+Result:
+
+primary_cause = 'payment_execution'
+primary_cause_group = 'timing'
+primary_owner = 'payment'
+
+Interpretation:
+
+Accounting delivered the invoice with the complete required payment runway, but payment execution missed the contractual deadline.
+
+There is no payment compressed/standard distinction. Three days is the single payment ownership boundary.
+
+Except for the deliberate Rule 2 contractual-design override, once the payment reserve is delivered, earlier intake conditions do not change payment’s primary accountability.
+
+Rules 3–5 require runway_at_handoff < 3. Rule 6 requires runway_at_handoff >= 3. These branches are mutually exclusive.
+
+D88 Diagnostic conditions [POLICY]
+
+Expose the following diagnostics where their inputs are valid:
+
+terms_condition:
+    terms_below_minimum
+    terms_below_standard
+    terms_standard
+
+intake_condition:
+    insufficient
+    compressed
+    standard
+
+handoff_condition:
+    reserve_not_met
+    reserve_met
+
+pre_sap_exceeded_standard:
+    pre_sap_elapsed_days > standard_processing_days
+
+handoff_reserve_shortfall_days
+
+deadline_miss_days
+
+These diagnostics do not override the ordered primary cause.
+
+Do not add payment_exceeded_standard. Payment uses one minimum-runway threshold.
+
+D89 Downstream timing allocation [POLICY]
+
+Version 6 replaces the old payment-regime boundary:
+
+discount_deadline_date >= sap_entry_date
+
+with:
+
+runway_at_handoff >= minimum_payment_runway_days
+    → payment regime
+
+runway_at_handoff < minimum_payment_runway_days
+    → pre-SAP regime
+
+Timing allocation must include the Version 6 timing-group causes:
+
+- pre_sap_execution_compressed
+- pre_sap_execution_standard
+- payment_execution
+
+Allocation must remain consistent with primary ownership:
+
+- pre_sap_execution_compressed and pre_sap_execution_standard allocate through the pre-SAP regime.
+- payment_execution allocates through the payment regime.
+
+Derived payment_run_wait eligibility must use the same Version 6 payment boundary. It should apply to payment_execution rows, not merely invoices posted on or before the deadline.
+
+payment_run_wait retains its D64 meaning:
+
+- It covers discount_deadline_date → clearing_date.
+- It is the remainder after payment_block intervals.
+- It is not an observed blocker.
+- It is not the same concept as minimum_payment_runway_days.
+
+minimum_payment_runway_days is required time before the deadline.
+
+payment_run_wait describes post-deadline payment waiting after payment execution missed the deadline.
+
+D90 Versioning, curriculum and tests [POLICY]
+
+Version 6 must be explicitly identified. Do not silently redefine Version 5’s minimum_cycle_days or standard_cycle_days.
+
+Version 6 introduces:
+
+- attribution_policy_version
+- minimum_processing_days
+- standard_processing_days
+- minimum_payment_runway_days
+- processing_available_days
+- pre_sap_elapsed_days
+- runway_at_handoff
+- latest_safe_sap_entry_date
+- standard_sap_target_date
+- operational_sap_due_date
+- deadline_miss_days
+- handoff_reserve_shortfall_days
+- terms_condition
+- intake_condition
+- handoff_condition
+- primary_owner
+- pre_sap_exceeded_standard
+
+The active primary_cause vocabulary becomes:
+
+- data_quality_error
+- capture
+- structural_terms_vs_capability
+- structural_insufficient_time_at_intake
+- pre_sap_execution_compressed
+- pre_sap_execution_standard
+- payment_execution
+
+The active primary_cause_group vocabulary remains:
+
+- unclassified
+- capture
+- structural
+- timing
+
+Rebaseline Version 5 tests and marts deliberately for Version 6. Update accepted values, cause reconciliation, timing allocation, payment overlays, schema documentation and report expectations consistently.
+
+Required boundary scenarios:
+
+1. processing_available_days = 3 and runway_at_handoff < 3
+   → structural_insufficient_time_at_intake
+
+2. processing_available_days = 4 and runway_at_handoff < 3
+   → pre_sap_execution_compressed
+
+3. processing_available_days = 6 and runway_at_handoff < 3
+   → pre_sap_execution_compressed
+
+4. processing_available_days = 7 and runway_at_handoff < 3
+   → pre_sap_execution_standard
+
+5. runway_at_handoff = 2 with standard processing available
+   → pre_sap_execution_standard
+
+6. runway_at_handoff = 3 and the deadline was missed
+   → payment_execution
+
+7. processing_available_days < 4 but runway_at_handoff = 3
+   → payment_execution because accounting recovered
+
+8. compressed intake but runway_at_handoff = 3
+   → payment_execution; there is no compressed payment category
+
+9. discount_days = 6
+   → structural_terms_vs_capability
+   and terms_condition = terms_below_minimum
+
+10. discount_days = 7
+    → structural_terms_vs_capability
+    and terms_condition = terms_below_standard
+
+11. discount_days = 9
+    → structural_terms_vs_capability
+    and terms_condition = terms_below_standard
+
+12. discount_days = 10
+    → terms_standard and continue to intake/handoff attribution
+
+13. clearing_date = discount_deadline_date with discount not taken
+    → capture
+
+14. receipt_date > sap_entry_date
+    → data_quality_error
+
+15. sap_entry_date > clearing_date
+    → data_quality_error
+
+Expected classifications on the current curriculum before any deliberate seed adjustment:
+
+- 5100000003 → payment_execution
+- 5100000012 → capture
+- 5100000016 → structural_terms_vs_capability
+- 5100000017 → structural_insufficient_time_at_intake
+- 5100000018 → structural_insufficient_time_at_intake
+- 5100000019 → payment_execution
+- 5100000020 → capture
+- 5100000021 → data_quality_error
+- 5100000022 → pre_sap_execution_standard
+- 5100000023 → pre_sap_execution_standard
+- 5100000024 → pre_sap_execution_standard
+- 5100000025 → payment_execution
+
+The current curriculum has no pre_sap_execution_compressed example under 4/7/3. Add or deliberately rebaseline a labeled scenario so every active Version 6 primary cause has boundary coverage. Preserve chronology and downstream timing-span/event consistency when adjusting curriculum data.
+
+Before any curriculum adjustment, the expected leakage split is:
+
+- data_quality_error: 1 invoice / €18.00
+- capture: 2 invoices / €28.40
+- structural_terms_vs_capability: 1 invoice / €20.00
+- structural_insufficient_time_at_intake: 2 invoices / €28.00
+- pre_sap_execution_compressed: 0 invoices / €0.00
+- pre_sap_execution_standard: 3 invoices / €49.00
+- payment_execution: 3 invoices / €46.80
+
+Total:
+
+- 12 leakage invoices
+- €190.20 leakage
+
+The timing group remains €95.80 before curriculum adjustment:
+
+- pre_sap_execution_standard: €49.00
+- payment_execution: €46.80
+
+All timing-allocation euros must reconcile to the Version 6 timing-group total. All cause totals must reconcile to the headline leakage total.
+
+Implementation completion requires:
+
+- The Version 6 policy source is built and tested.
+- The invoice fact exposes and documents all required Version 6 fields.
+- All seven primary causes have accepted-value and labeled boundary coverage.
+- Cause marts reconcile to headline leakage.
+- Timing allocation reconciles to the timing-group causes.
+- Payment overlays use the three-day handoff boundary.
+- No payment_run_wait is generated for a pre-SAP execution cause.
+- Existing payment_block/payment_run_wait non-overlap remains valid.
+- Calendar-day and SAP-clearing-date assumptions are documented.
+- The full dbt build and test suite passes.
+
+Do not introduce the rejected alternative ordering in which payment_execution precedes structural_terms_vs_capability.
+
+Do not narrow structural_terms_vs_capability to terms below the seven-day minimum. Rule 2 remains based on the ten-day standard combined capability.
+
+Do not split structural_insufficient_time_at_intake according to actual pre-SAP elapsed time.
+
+Do not introduce standard_payment_days or a second payment threshold.
+
+
+2026-10-06 — Stakeholder PDF deliverable v1 (layout + implementation; not final design)
+
+Context:
+
+D67–D71 (2026-10-04) freeze customer report **content** (section order, wording rules, data binding to marts). This entry freezes the first **rendered PDF layout** for the curriculum period. Content rules remain D67–D71; presentation may change in v2+.
+
+Status: BUILT v1 — sample PDF + generator script; **not** production-automated from warehouse yet.
+
+Decisions:
+
+D79 PDF v1 artifact [FACT]:
+- Canonical sample: `reports/cash_discount_report_2024_4.pdf`.
+- Generator: `reports/_generate_cash_discount_report_2024_4.py` (Python 3, dependency `fpdf2`).
+- Earlier layout attempts: `reports/_generate_cash_discount_report_2024_2.py`, `_3.py` (superseded by v4 for design reference).
+- Regenerate: `python reports/_generate_cash_discount_report_2024_4.py` from repo root.
+
+D80 PDF v1 presentation [POLICY] — client-facing; extends D67/D71 for this layout only:
+- No mart/table names, decision IDs, or author-only instructions in the PDF body.
+- Section numbering follows D68 (§1–§7; timing §5; checklist §7).
+- Tables: full printable width with margins; `fpdf2` `table()` API; checklist rows use uniform minimum row height for wrapping.
+- **Start with** column: vendor **legal name** from SAP vendor master (`NAME1` / `dim_vendor_sap`); **numbered list** (`1.` / `2.` …) when more than one supplier on a row; single supplier unnumbered.
+- Timing narrative: **5100000024** — interface delay primary; rework secondary (D69); full name **Precision Tools SA**.
+- Payment timing: two rows only — **Waiting to clear after the deadline**, **Payment block** (D64/D65); combined run-wait EUR 37.80 with numbered Nordic Logistics AB + FastPay Services Ltd.
+- Optional appendix page: timing actions in **process order** (D71 optional table).
+- Supersedes nothing in D67–D74; amends D74 only in that a **PDF path** exists (chat narrative still valid).
+
+D81 Data for PDF v1 [FACT + deferred]:
+- v1 script embeds curriculum totals matching `assert_mart_cash_discount_kpi_*` and payment bucket tests (D65/D72).
+- **Deferred:** query marts at build time; parameterise company/period; concentration from `analyses/timing_bucket_act_vendors.sql`; CI step to regenerate PDF after `dbt build`.
+
+D82 Documentation split [POLICY]:
+- **decisions.md** — this entry + D67–D71 (what/why; no full script).
+- **`reports/README.md`** (or `docs/report_pdf_v1.md`) — layout constants, version table, regen command, link to D67–D71.
+- **Generator script** — source of truth for copy/layout until mart-driven export exists.
+
+Run (optional, after script change):
+
+```bash
+pip install fpdf2
+python reports/_generate_cash_discount_report_2024_4.py (renamed it to _v1)
+
 2026-10-05 — Coupa-derived timing overlays; retire raw_inv_timing_overlay (overlay v2)
 
 Context:
 
-Hand-authored `raw_inv_timing_overlay` simulated a source table that does not exist in Coupa or SAP. Payment overlays were already derived (`payment_block` from SAP changes, `payment_run_wait` per D64). Pre-posting blockers should be derived from Coupa change history the same way. `vendor_response_wait` implied supplier-only wait without a Coupa status; replaced by dispute intervals from changes. Stale Snowflake objects `RAW_INV_TIMING_OVERLAY` / `SRC_INV_TIMING_OVERLAY` are dropped manually after file removal (dbt does not auto-drop removed models).
-
-Status: BUILT — seeds, `int_inv_coupa_overlay_intervals`, `fct_inv_timing_overlay`, tests, mart owner_role updated.
+Hand-authored `raw_inv_timing_overlay` simulated a source table that does not exist. Payment overlays are already derived (SAP `payment_block`, `payment_run_wait` per D64). Pre-posting blockers should come from Coupa change history like rework/hold.
 
 Decisions:
 
-D75 Overlay sources v2 [POLICY] — supersedes D40/D60 seed path for Coupa/manual rows; amends D36 vocabulary:
-- Remove `raw_inv_timing_overlay`, `src_inv_timing_overlay`, and warehouse objects if still present.
-- Derive Coupa intervals in `int_inv_coupa_overlay_intervals` from `fct_inv_coupa_changes`, map `coupa_id` → `sap_inv_key` via `map_inv_sap_coupa` (matched invoices only).
-- `on_hold`: status `on_hold` → `interval_start` = `event_date`; `interval_end` = next change `event_date` on same `coupa_id` (order: `event_date`, `revision_seq`, `coupa_change_id`). Informational per D27; span clock unchanged.
-- `rework`: each `rejected` → from latest prior `submitted` on same `coupa_id` (`max(coupa_change_id)` &lt; reject id) through reject `event_date` (D20).
-- `inv_dispute`: Coupa change status `disputed` (informational in `seed_coupa_status_map`) → same open/close interval rule as `on_hold`. Overlay code `inv_dispute` is distinct from header status `disputed` and from `dispute_open_at_clearing` on `fct_inv_sap` (exclusion snapshot at clear; unchanged).
-- Union in `fct_inv_timing_overlay` with `int_inv_sap_payment_block_intervals` and derived `payment_run_wait` (D64; unchanged).
-- Retire `vendor_response_wait` from active vocabulary (removed from `seed_timing_overlay_reason_map`; not renamed).
+D75 Overlay sources v2 [POLICY] — supersedes D40/D60 seed path for Coupa/manual rows:
+- Remove `raw_inv_timing_overlay` and `src_inv_timing_overlay`.
+- Derive in dbt from `fct_inv_coupa_changes` via `int_inv_coupa_overlay_intervals`:
+  - `on_hold`: status `on_hold` → interval_start = event_date; interval_end = next change `event_date` on same `coupa_id` (order: event_date, revision_seq, coupa_change_id).
+  - `rework`: each `rejected` → interval from latest prior `submitted` on same `coupa_id` (max `coupa_change_id` &lt; reject id) through reject `event_date`.
+  - `inv_dispute`: status `disputed` (informational in `seed_coupa_status_map`) → same interval rule as `on_hold`.
+- Map `coupa_id` → `sap_inv_key` with `map_inv_sap_coupa`; only matched invoices.
+- Union in `fct_inv_timing_overlay` with `int_inv_sap_payment_block_intervals` and derived `payment_run_wait` (unchanged).
+- Retire `vendor_response_wait` from `seed_timing_overlay_reason_map` (removed, not renamed).
 
-D76 Active overlay reason codes [POLICY] — amends D36/D48:
-- `on_hold`, `rework`, `inv_dispute`, `payment_block`, `payment_run_wait`.
-- Deferred overlay codes remain: `pending_receipt`; ServiceNow ticket intervals; sub-states inside dispute.
-- Coupa `disputed` on matched invoices is modeled via **changes**, not orphan header-only rows (10014 remains out of KPI funnel per D21).
+D76 Reason vocabulary [POLICY] — amends D36:
+- Active overlay codes: `on_hold`, `rework`, `inv_dispute`, `payment_block`, `payment_run_wait`.
+- `inv_dispute` = open Coupa dispute interval from changes; not the header status alone; not `dispute_open_at_clearing` on `fct_inv_sap` (exclusion snapshot, unchanged).
+- Deferred: ServiceNow ticket intervals; sub-states inside dispute.
 
-D77 Curriculum and tests [FACT]:
-- `raw_inv_coupa_changes`: add `disputed` on 10019 (`900093`, 2024-10-16 → pending 2024-10-18, 2d `inv_dispute`); 10023 (`900094`, 2024-08-05 → pending 2024-08-08, 3d `inv_dispute`). **94** rows in `fct_inv_coupa_changes`.
-- Heroes: 5100000019 verification `inv_dispute` + payment `payment_run_wait` (replaces verification `vendor_response_wait`); 5100000023 verification `inv_dispute` €16.00; on_hold/rework unchanged on 0008/0022/0020/0024; payment block/run-wait on 0003/0019/0025 unchanged.
-- `fct_inv_timing_overlay`: **10** rows (2 on_hold + 2 rework + 2 inv_dispute + 3 payment_run_wait + 1 payment_block).
-- `mart_timing_bucket_impact`: bucket `inv_dispute`, `owner_role` **resolve dispute**; tie-break `inv_dispute`, then rework, then on_hold (replaces `vendor_response_wait`).
-
-D78 Report copy [POLICY] — amends D52/D69 where they reference `vendor_response_wait`:
-- Verification/approval bucket prose: **resolve dispute** (or equivalent), not “remove supplier wait.”
-- `no_recorded_blocker` wording unchanged.
+D77 Curriculum [FACT]:
+- Add `disputed` changes: 10019 (`900093`, 2024-10-16 → pending 2024-10-18, 2d); 10023 (`900094`, 2024-08-05 → pending 2024-08-08, 3d).
+- Heroes: 5100000019 verification `inv_dispute` (replaces vendor_response_wait); 5100000023 verification `inv_dispute`; on_hold/rework unchanged on 0008/0022/0020/0024.
+- Expected `fct_inv_timing_overlay` rows: **10** (2 on_hold + 2 rework + 2 inv_dispute + 3 payment_run_wait + 1 payment_block).
+- Expected `fct_inv_coupa_changes` rows: **94**.
 
 Run:
 
 ```bash
 dbt seed --select seed_coupa_status_map seed_timing_overlay_reason_map raw_inv_coupa_changes
-dbt run --select fct_inv_coupa_changes int_inv_coupa_overlay_intervals fct_inv_timing_overlay+
+dbt run --select int_inv_coupa_overlay_intervals+ fct_inv_timing_overlay+
 dbt test
-```
 
 2026-10-04 — Stakeholder cash discount report (narrative spec)
 
@@ -2029,10 +2660,11 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | raw_inv_sap | seed | one row per AP document | SAP BKPF-style; 25 rows; incl. 5100000022–5100000025 (curriculum v2) |
 | raw_vendor_coupa | seed | one row per supplier | Coupa API names; 7 rows; quote_columns |
 | raw_inv_coupa | seed | one row per invoice doc | 24 rows; quote_columns; +10022–10025 |
-| raw_inv_coupa_changes | seed | one row per Coupa revision | 94 rows; quote_columns; +disputed on 10019/10023 (D75) |
+| raw_inv_coupa_changes | seed | one row per Coupa revision | 92 rows; quote_columns |
+| raw_inv_timing_overlay | seed | one row per blocker interval | 6 rows; pre-posting heroes + contrast overlays; no payment_run_wait (D64) |
 | seed_payment_term_sap | seed | one row per ZTERM | Z210, N030, Z205; 3 rows |
-| seed_coupa_status_map | seed | one row per Coupa status | 8 rows; +disputed informational (D75) |
-| seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; inv_dispute replaces vendor_response_wait (D75) |
+| seed_coupa_status_map | seed | one row per Coupa status | 7 rows; D21 status_role vocabulary |
+| seed_timing_overlay_reason_map | seed | one row per overlay_reason_code | 5 rows; D36 blocker vocabulary |
 | src_smoke_test | src (view) | — | Connection smoke test |
 | src_vendor_sap | src (view) | one row per vendor | Rename + cast; includes deleted vendors |
 | src_inv_sap | src (view) | one row per AP document | sap_inv_key; clearing_date, sap_entry_date, discount_taken_amount, four *_at_clearing flags |
@@ -2040,16 +2672,16 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 | src_inv_coupa | src (view) | one row per invoice doc | All doc types incl. credit note |
 | src_inv_coupa_changes | src (view) | one row per revision | event_at, event_date, revision_seq |
 | src_inv_sap_changes | src (view) | one row per change event | sap_change_id; rename/cast from raw_inv_sap_changes |
+| src_inv_timing_overlay | src (view) | one row per blocker interval | Rename/cast only; builds sap_inv_key |
 | dim_vendor_sap | dim (table) | one row per active vendor | deletion_flag is null; 6 rows |
 | dim_vendor_coupa | dim (table) | one row per active supplier | status = active; 6 rows |
 | fct_inv_sap | fct (table) | one row per vendor invoice (KR) | 24 rows; funnel 16/3/1/12; leakage €190.20 |
 | fct_inv_coupa | fct (table) | one row per Coupa invoice | 23 rows; 18 paid matched |
-| fct_inv_coupa_changes | fct (table) | coupa_change_id | 94 rows; status_role from seed_coupa_status_map |
+| fct_inv_coupa_changes | fct (table) | coupa_change_id | 92 rows; status_role from seed_coupa_status_map |
 | fct_inv_sap_changes | fct (table) | sap_change_id | 2 rows; block_event_role; FK sap_inv_key → fct_inv_sap (D58) |
 | int_inv_sap_payment_block_intervals | int (ephemeral) | one row per derived block interval | ZLSPR set→release; feeds fct_inv_timing_overlay (D60) |
-| int_inv_coupa_overlay_intervals | int (ephemeral) | one row per Coupa-derived interval | on_hold, rework, inv_dispute (D75) |
 | fct_inv_timing_span | fct (table) | (sap_inv_key, phase_level, phase_code, span_seq) | 48 total; 42 measured; subprocess 124 |
-| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 10 rows (Coupa derived + 3 run-wait + 1 SAP block; D75); FK sap_inv_key → fct_inv_sap |
+| fct_inv_timing_overlay | fct (table) | (sap_inv_key, overlay_reason_code, interval_seq) | 10 rows (6 seed + 3 derived run-wait + 1 SAP block; D64 A); FK sap_inv_key → fct_inv_sap |
 | fct_inv_timing_overlay_span | fct (view) | overlay interval × measured span overlap | reason_exposure_days derived; D32/D35 |
 | map_inv_sap_coupa | map (table) | (sap_inv_key, coupa_id) | 21 confirmed matches |
 | mart_cash_discount_kpi | mart (table) | one row per reporting period | leakage_eur 190.20; opportunity 355.21 |
