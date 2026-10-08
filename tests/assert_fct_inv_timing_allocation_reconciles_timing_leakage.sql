@@ -1,12 +1,12 @@
--- D50: portfolio sum equals mart_cash_discount_kpi_by_cause timing leakage_eur
+-- D50 / D89: allocation sum equals timing-group leakage (three V6 causes)
 with allocated as (
     select round(sum(priority_allocated_eur), 2) as total_allocated_eur
     from {{ ref('fct_inv_timing_allocation') }}
 ),
 timing_kpi as (
-    select leakage_eur
+    select round(sum(leakage_eur), 2) as leakage_eur
     from {{ ref('mart_cash_discount_kpi_by_cause') }}
-    where primary_cause = 'timing'
+    where primary_cause_group = 'timing'
 )
 select
     a.total_allocated_eur,

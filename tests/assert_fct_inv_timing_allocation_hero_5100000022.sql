@@ -1,10 +1,11 @@
--- Curriculum v2 step 1: pre-posting timing with verification on_hold
+-- Curriculum v2: pre_sap_execution_standard with verification on_hold
 select s.doc_number
 from {{ ref('fct_inv_sap') }} s
 where s.doc_number = '5100000022'
   and (
       s.is_leakage is distinct from true
-      or s.primary_cause is distinct from 'timing'
+      or s.primary_cause is distinct from 'pre_sap_execution_standard'
+      or s.primary_cause_group is distinct from 'timing'
       or s.lost_discount_amount is distinct from 20.00
       or s.receipt_date is null
       or not exists (

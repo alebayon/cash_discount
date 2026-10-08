@@ -17,7 +17,7 @@ where doc_number in ('5100000003', '5100000012', '5100000013')
           when '5100000013' then false
       end
       or primary_cause is distinct from case doc_number
-          when '5100000003' then 'timing'
+          when '5100000003' then 'payment_execution'
           when '5100000012' then 'capture'
           when '5100000013' then null
       end

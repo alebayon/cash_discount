@@ -6,6 +6,7 @@ models:
       SAP vendor invoice fact. One row per posted vendor invoice (KR).
       Grain sap_inv_key. Structural is_entitled is period-agnostic;
       is_kpi_entitled applies the reporting-period paid gate (dbt vars).
+      Version 6 leakage root-cause waterfall and policy fields (D83–D90).
     columns:
       - name: sap_inv_key
         description: Composite business key (BELNR-BUKRS-GJAHR).
@@ -22,11 +23,10 @@ models:
                 field: vendor_id
       - name: sap_entry_date
         description: >
-         SAP document entry date (BKPF CPUDT). System-stamped at document
-         creation; process milestone for timing spans. Not used in Version 5
-         waterfall logic.
+          SAP document entry date (BKPF CPUDT). Authoritative pre-SAP/payment
+          handoff milestone for Version 6 attribution and timing regime (D84).
         tests:
-          - not_null      
+          - not_null
       - name: clearing_date
         description: SAP clearing date (AUGDT). Null when invoice is open/uncleared.
       - name: discount_taken_amount
@@ -44,7 +44,7 @@ models:
         tests:
           - not_null:
               config:
-                where: "is_entitled"        
+                where: "is_entitled"
       - name: is_entitled
         description: >
           P1 structural entitlement (pre-payment gate). True when all entitlement
@@ -123,7 +123,7 @@ models:
           Coupa invoice id stamped on SAP at posting (BKPF XREF2_HD).
           Populated by integration for Coupa-posted documents; null on
           SAP-only paths (e.g. FB60). Used to build map_inv_sap_coupa;
-          not an FK.                
+          not an FK.
 
       - name: is_excluded
         description: >
@@ -164,11 +164,97 @@ models:
               config:
                 where: "is_leakage"
 
+      - name: receipt_date
+        description: >
+          Intake anchor (Coupa created_at::date). Null on SAP-only rows;
+          null receipt on leakage → data_quality_error (D87).
+
+      - name: attribution_policy_version
+        description: Active leakage attribution policy label from seed_attribution_policy (D83/D90).
+        tests:
+          - not_null
+
+      - name: minimum_processing_days
+        description: Expedited minimum pre-SAP calendar days from active policy.
+        tests:
+          - not_null
+
+      - name: standard_processing_days
+        description: Standard pre-SAP calendar days from active policy.
+        tests:
+          - not_null
+
+      - name: minimum_payment_runway_days
+        description: Required payment runway at SAP handoff from active policy.
+        tests:
+          - not_null
+
+      - name: available_days
+        description: Calendar days receipt_date to discount_deadline_date (D85).
+
+      - name: processing_available_days
+        description: Pre-SAP budget after payment runway reserve (D85).
+
+      - name: pre_sap_elapsed_days
+        description: Calendar days receipt_date to sap_entry_date (D85).
+
+      - name: runway_at_handoff
+        description: Calendar days sap_entry_date to discount_deadline_date (D85).
+
+      - name: latest_safe_sap_entry_date
+        description: Last SAP entry date preserving minimum payment runway (D85).
+
+      - name: standard_sap_target_date
+        description: receipt_date plus standard_processing_days (D85).
+
+      - name: operational_sap_due_date
+        description: Least of standard SAP target and latest safe handoff (D85).
+
+      - name: deadline_miss_days
+        description: Calendar days discount_deadline_date to clearing_date when cleared (D85).
+
+      - name: handoff_reserve_shortfall_days
+        description: Days short of minimum payment runway at handoff (D85).
+
+      - name: actual_cycle_days
+        description: Calendar days receipt_date to clearing_date when both present.
+
+      - name: terms_condition
+        description: Contractual terms severity diagnostic (D86/D88).
+        tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - terms_below_minimum
+                  - terms_below_standard
+                  - terms_standard
+              config:
+                where: "is_leakage and discount_days is not null"
+
+      - name: intake_condition
+        description: Intake band diagnostic from processing_available_days (D88).
+        tests:
+          - accepted_values:
+              arguments:
+                values: [insufficient, compressed, standard]
+              config:
+                where: "is_leakage and processing_available_days is not null"
+
+      - name: handoff_condition
+        description: Payment reserve diagnostic at SAP handoff (D88).
+        tests:
+          - accepted_values:
+              arguments:
+                values: [reserve_not_met, reserve_met]
+              config:
+                where: "is_leakage and runway_at_handoff is not null"
+
+      - name: pre_sap_exceeded_standard
+        description: True when pre_sap_elapsed_days exceeds standard_processing_days (D88).
+
       - name: primary_cause
         description: >
-          Root-cause category on leakage rows only. timing = paid after
-          discount_deadline_date; capture = paid in window but discount not
-          taken; structural = fallback when dates cannot classify.
+          Version 6 root-cause on leakage rows only (ordered waterfall D87).
         tests:
           - not_null:
               config:
@@ -180,15 +266,16 @@ models:
                   - capture
                   - structural_terms_vs_capability
                   - structural_insufficient_time_at_intake
-                  - structural_compressed_intake
-                  - timing
+                  - pre_sap_execution_compressed
+                  - pre_sap_execution_standard
+                  - payment_execution
               config:
                 where: "is_leakage"
 
       - name: primary_cause_group
         description: >
           Broad roll-up of primary_cause on leakage rows.
-          structural_* → structural; data_quality_error → unclassified.
+          structural_* → structural; execution causes → timing.
         tests:
           - not_null:
               config:
@@ -199,10 +286,28 @@ models:
               config:
                 where: "is_leakage"
 
+      - name: primary_owner
+        description: Process owner for primary_cause on leakage rows (D87).
+        tests:
+          - not_null:
+              config:
+                where: "is_leakage"
+          - accepted_values:
+              arguments:
+                values:
+                  - unclassified
+                  - capture_process
+                  - procurement_contracts
+                  - upstream_intake
+                  - pre_sap
+                  - payment
+              config:
+                where: "is_leakage"
+
       - name: is_still_feasible
         description: >
-          Leakage rows only. True when available_days >= minimum_cycle_days at intake.
-          Null on non-leakage, capture, and data_quality_error rows.
+          Leakage rows only. True when processing_available_days >= minimum_processing_days.
+          Null on capture and data_quality_error.
         tests:
           - accepted_values:
               arguments:
@@ -212,8 +317,8 @@ models:
 
       - name: requires_expedited_processing
         description: >
-          Leakage rows only. True when intake allowed expedite band
-          (minimum <= available_days < standard). Null on capture and data_quality_error.
+          Leakage rows only. True when minimum <= processing_available_days < standard.
+          Null on capture and data_quality_error.
         tests:
           - accepted_values:
               arguments:
@@ -223,8 +328,8 @@ models:
 
       - name: is_timing_contributor
         description: >
-          Leakage rows only. True when paid after deadline and actual_cycle_days
-          exceeded standard. Null on capture and data_quality_error.
+          Leakage rows only. Missed deadline with pre-SAP overrun or payment_execution.
+          Null on capture and data_quality_error.
         tests:
           - accepted_values:
               arguments:
@@ -288,7 +393,7 @@ models:
       Process phase spans per invoice. Ownership branch reads fct_inv_sap only
       (pre_sap, payment). Subprocess branch reads fct_inv_coupa_changes plus SAP
       dates (intake, verification, approval, interface, payment). Does not
-      recompute leakage or Version 5 attribution. Population is all invoices.
+      recompute leakage or Version 6 attribution. Population is all invoices.
     columns:
       - name: sap_inv_key
         tests:
@@ -405,7 +510,8 @@ models:
       Blocker overlay intervals per invoice. Grain
       (sap_inv_key, overlay_reason_code, interval_seq). Coupa on_hold, rework,
       and inv_dispute from int_inv_coupa_overlay_intervals; SAP payment_block
-      from int_inv_sap_payment_block_intervals; payment_run_wait derived (D64/D75).
+      from int_inv_sap_payment_block_intervals; payment_run_wait derived for
+      payment_execution rows with runway at handoff (D64/D75/D89).
     columns:
       - name: sap_inv_key
         tests:
@@ -480,10 +586,11 @@ models:
 
   - name: fct_inv_timing_allocation
     description: >
-      Timing-leakage priority allocation by phase and bucket (slice 4, D46–D49).
-      Grain (sap_inv_key, phase_level, phase_code, bucket_code); rows only when
-      priority_allocated_eur > 0. Reads fct_inv_timing_span and
-      fct_inv_timing_overlay_span; does not modify overlay layers.
+      Timing-leakage priority allocation by phase and bucket (slice 4, D46–D50).
+      In scope for Version 6 timing-group primary causes only; payment vs
+      pre-posting regime from runway_at_handoff (D89). Grain
+      (sap_inv_key, phase_level, phase_code, bucket_code); rows only when
+      priority_allocated_eur > 0.
     columns:
       - name: sap_inv_key
         tests:

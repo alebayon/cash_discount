@@ -20,7 +20,7 @@ models:
 
   - name: mart_cash_discount_kpi_by_cause
     description: >
-      Leakage KPI breakdown by Version 5 primary_cause.
+      Leakage KPI breakdown by Version 6 primary_cause (D90).
       One row per cause per reporting period; leakage rows only.
     columns:
       - name: reporting_period_start
@@ -37,8 +37,9 @@ models:
                   - capture
                   - structural_terms_vs_capability
                   - structural_insufficient_time_at_intake
-                  - structural_compressed_intake
-                  - timing
+                  - pre_sap_execution_compressed
+                  - pre_sap_execution_standard
+                  - payment_execution
       - name: primary_cause_group
         tests:
           - not_null
