@@ -34,12 +34,14 @@ payment_windows as (
         clearing_date as win_end
     from {{ ref('fct_inv_sap') }}
     where is_leakage
-      and primary_cause = 'timing'
+      and primary_cause = 'payment_execution'
       and clearing_date is not null
       and discount_deadline_date is not null
       and sap_entry_date is not null
       and clearing_date > discount_deadline_date
-      and discount_deadline_date >= sap_entry_date
+      and runway_at_handoff is not null
+      and minimum_payment_runway_days is not null
+      and runway_at_handoff >= minimum_payment_runway_days
 
 ),
 

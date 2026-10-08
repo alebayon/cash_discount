@@ -1,7 +1,5 @@
 {% set period_start = var('reporting_period_start', '2024-01-01') %}
 {% set period_end   = var('reporting_period_end', '2024-12-31') %}
-{% set minimum_cycle_days = 5 %}
-{% set standard_cycle_days = 10 %}
 
 with src as (
 
@@ -168,70 +166,189 @@ with_receipt as (
 
 ),
 
-with_cycle_benchmarks as (
+with_policy as (
 
     select
         wr.*,
-        {{ minimum_cycle_days }} as minimum_cycle_days,
-        {{ standard_cycle_days }} as standard_cycle_days
+        pol.attribution_policy_version,
+        pol.minimum_processing_days,
+        pol.standard_processing_days,
+        pol.minimum_payment_runway_days
     from with_receipt wr
+    cross join {{ ref('int_attribution_policy_active') }} as pol
 
 ),
 
 with_leakage_diagnostics as (
 
     select
-        wb.*,
+        wp.*,
         case
-            when wb.receipt_date is not null
-             and wb.discount_deadline_date is not null
-            then datediff('day', wb.receipt_date, wb.discount_deadline_date)
+            when wp.receipt_date is not null
+             and wp.discount_deadline_date is not null
+            then datediff('day', wp.receipt_date, wp.discount_deadline_date)
         end as available_days,
         case
-            when wb.receipt_date is not null
-             and wb.clearing_date is not null
-            then datediff('day', wb.receipt_date, wb.clearing_date)
-        end as actual_cycle_days,
+            when wp.receipt_date is not null
+             and wp.discount_deadline_date is not null
+             and wp.minimum_payment_runway_days is not null
+            then datediff('day', wp.receipt_date, wp.discount_deadline_date)
+                - wp.minimum_payment_runway_days
+        end as processing_available_days,
         case
-            when wb.receipt_date is not null
-            then dateadd('day', wb.standard_cycle_days, wb.receipt_date)
-        end as operational_deadline_date
-    from with_cycle_benchmarks wb
+            when wp.receipt_date is not null
+             and wp.sap_entry_date is not null
+            then datediff('day', wp.receipt_date, wp.sap_entry_date)
+        end as pre_sap_elapsed_days,
+        case
+            when wp.sap_entry_date is not null
+             and wp.discount_deadline_date is not null
+            then datediff('day', wp.sap_entry_date, wp.discount_deadline_date)
+        end as runway_at_handoff,
+        case
+            when wp.discount_deadline_date is not null
+             and wp.minimum_payment_runway_days is not null
+            then dateadd(
+                'day',
+                -wp.minimum_payment_runway_days,
+                wp.discount_deadline_date
+            )
+        end as latest_safe_sap_entry_date,
+        case
+            when wp.receipt_date is not null
+             and wp.standard_processing_days is not null
+            then dateadd('day', wp.standard_processing_days, wp.receipt_date)
+        end as standard_sap_target_date,
+        case
+            when wp.receipt_date is not null
+             and wp.discount_deadline_date is not null
+             and wp.standard_processing_days is not null
+             and wp.minimum_payment_runway_days is not null
+            then least(
+                dateadd('day', wp.standard_processing_days, wp.receipt_date),
+                dateadd(
+                    'day',
+                    -wp.minimum_payment_runway_days,
+                    wp.discount_deadline_date
+                )
+            )
+        end as operational_sap_due_date,
+        case
+            when wp.discount_deadline_date is not null
+             and wp.clearing_date is not null
+            then datediff('day', wp.discount_deadline_date, wp.clearing_date)
+        end as deadline_miss_days,
+        case
+            when wp.minimum_payment_runway_days is not null
+             and wp.sap_entry_date is not null
+             and wp.discount_deadline_date is not null
+            then greatest(
+                0,
+                wp.minimum_payment_runway_days
+                - datediff('day', wp.sap_entry_date, wp.discount_deadline_date)
+            )
+        end as handoff_reserve_shortfall_days,
+        case
+            when wp.receipt_date is not null
+             and wp.clearing_date is not null
+            then datediff('day', wp.receipt_date, wp.clearing_date)
+        end as actual_cycle_days
+    from with_policy wp
+
+),
+
+with_v6_diagnostics as (
+
+    select
+        wd.*,
+        case
+            when wd.discount_days is null
+              or wd.minimum_processing_days is null
+              or wd.standard_processing_days is null
+              or wd.minimum_payment_runway_days is null
+                then null
+            when wd.discount_days
+                < wd.minimum_processing_days + wd.minimum_payment_runway_days
+                then 'terms_below_minimum'
+            when wd.discount_days
+                < wd.standard_processing_days + wd.minimum_payment_runway_days
+                then 'terms_below_standard'
+            else 'terms_standard'
+        end as terms_condition,
+        case
+            when wd.processing_available_days is null
+              or wd.minimum_processing_days is null
+              or wd.standard_processing_days is null
+                then null
+            when wd.processing_available_days < wd.minimum_processing_days
+                then 'insufficient'
+            when wd.processing_available_days < wd.standard_processing_days
+                then 'compressed'
+            else 'standard'
+        end as intake_condition,
+        case
+            when wd.runway_at_handoff is null
+              or wd.minimum_payment_runway_days is null
+                then null
+            when wd.runway_at_handoff < wd.minimum_payment_runway_days
+                then 'reserve_not_met'
+            else 'reserve_met'
+        end as handoff_condition,
+        case
+            when wd.pre_sap_elapsed_days is null
+              or wd.standard_processing_days is null
+                then null
+            else wd.pre_sap_elapsed_days > wd.standard_processing_days
+        end as pre_sap_exceeded_standard
+    from with_leakage_diagnostics wd
 
 ),
 
 with_primary_cause as (
 
     select
-        wd.*,
+        wv.*,
         case
-            when wd.is_kpi_entitled
-             and not wd.is_taken
-             and not wd.is_excluded
+            when wv.is_kpi_entitled
+             and not wv.is_taken
+             and not wv.is_excluded
             then case
-                when wd.receipt_date is null
-                  or wd.clearing_date is null
-                  or wd.discount_deadline_date is null
-                  or wd.discount_days is null
-                  or wd.minimum_cycle_days is null
-                  or wd.standard_cycle_days is null
-                  or wd.discount_days <= 0
-                  or wd.minimum_cycle_days <= 0
-                  or wd.standard_cycle_days < wd.minimum_cycle_days
-                  or wd.receipt_date > wd.clearing_date
+                when wv.receipt_date is null
+                  or wv.sap_entry_date is null
+                  or wv.clearing_date is null
+                  or wv.discount_deadline_date is null
+                  or wv.discount_days is null
+                  or wv.discount_days <= 0
+                  or wv.attribution_policy_version is null
+                  or wv.minimum_processing_days is null
+                  or wv.standard_processing_days is null
+                  or wv.minimum_payment_runway_days is null
+                  or wv.minimum_processing_days <= 0
+                  or wv.standard_processing_days < wv.minimum_processing_days
+                  or wv.minimum_payment_runway_days <= 0
+                  or wv.receipt_date > wv.sap_entry_date
+                  or wv.sap_entry_date > wv.clearing_date
                     then 'data_quality_error'
-                when wd.clearing_date <= wd.discount_deadline_date
+                when wv.clearing_date <= wv.discount_deadline_date
                     then 'capture'
-                when wd.discount_days < wd.standard_cycle_days
+                when wv.discount_days
+                    < wv.standard_processing_days + wv.minimum_payment_runway_days
                     then 'structural_terms_vs_capability'
-                when wd.available_days < wd.minimum_cycle_days
+                when wv.processing_available_days < wv.minimum_processing_days
+                 and wv.runway_at_handoff < wv.minimum_payment_runway_days
                     then 'structural_insufficient_time_at_intake'
-                when wd.available_days < wd.standard_cycle_days
-                    then 'structural_compressed_intake'
-                else 'timing'
+                when wv.minimum_processing_days <= wv.processing_available_days
+                 and wv.processing_available_days < wv.standard_processing_days
+                 and wv.runway_at_handoff < wv.minimum_payment_runway_days
+                    then 'pre_sap_execution_compressed'
+                when wv.processing_available_days >= wv.standard_processing_days
+                 and wv.runway_at_handoff < wv.minimum_payment_runway_days
+                    then 'pre_sap_execution_standard'
+                when wv.runway_at_handoff >= wv.minimum_payment_runway_days
+                    then 'payment_execution'
             end
         end as primary_cause
-    from with_leakage_diagnostics wd
+    from with_v6_diagnostics wv
 
 ),
 
@@ -259,25 +376,46 @@ with_leakage as (
                 then 'capture'
             when wpc.primary_cause = 'data_quality_error'
                 then 'unclassified'
-            when wpc.primary_cause = 'timing'
+            when wpc.primary_cause in (
+                'pre_sap_execution_compressed',
+                'pre_sap_execution_standard',
+                'payment_execution'
+            )
                 then 'timing'
             when wpc.primary_cause is not null
                 then 'structural'
         end as primary_cause_group,
         case
+            when wpc.primary_cause = 'capture'
+                then 'capture_process'
+            when wpc.primary_cause = 'data_quality_error'
+                then 'unclassified'
+            when wpc.primary_cause = 'structural_terms_vs_capability'
+                then 'procurement_contracts'
+            when wpc.primary_cause = 'structural_insufficient_time_at_intake'
+                then 'upstream_intake'
+            when wpc.primary_cause in (
+                'pre_sap_execution_compressed',
+                'pre_sap_execution_standard'
+            )
+                then 'pre_sap'
+            when wpc.primary_cause = 'payment_execution'
+                then 'payment'
+        end as primary_owner,
+        case
             when wpc.is_kpi_entitled
              and not wpc.is_taken
              and not wpc.is_excluded
              and wpc.primary_cause not in ('capture', 'data_quality_error')
-            then wpc.available_days >= wpc.minimum_cycle_days
+            then wpc.processing_available_days >= wpc.minimum_processing_days
         end as is_still_feasible,
         case
             when wpc.is_kpi_entitled
              and not wpc.is_taken
              and not wpc.is_excluded
              and wpc.primary_cause not in ('capture', 'data_quality_error')
-            then wpc.available_days >= wpc.minimum_cycle_days
-             and wpc.available_days < wpc.standard_cycle_days
+            then wpc.processing_available_days >= wpc.minimum_processing_days
+             and wpc.processing_available_days < wpc.standard_processing_days
         end as requires_expedited_processing,
         case
             when wpc.is_kpi_entitled
@@ -285,7 +423,10 @@ with_leakage as (
              and not wpc.is_excluded
              and wpc.primary_cause not in ('capture', 'data_quality_error')
             then wpc.clearing_date > wpc.discount_deadline_date
-             and wpc.actual_cycle_days > wpc.standard_cycle_days
+             and (
+                coalesce(wpc.pre_sap_exceeded_standard, false)
+                or wpc.primary_cause = 'payment_execution'
+             )
         end as is_timing_contributor
     from with_primary_cause wpc
 
@@ -324,16 +465,30 @@ select
     coupa_posting_ref as sap_ref_key,
     is_excluded,
     receipt_date,
-    minimum_cycle_days,
-    standard_cycle_days,
+    attribution_policy_version,
+    minimum_processing_days,
+    standard_processing_days,
+    minimum_payment_runway_days,
     available_days,
+    processing_available_days,
+    pre_sap_elapsed_days,
+    runway_at_handoff,
+    latest_safe_sap_entry_date,
+    standard_sap_target_date,
+    operational_sap_due_date,
+    deadline_miss_days,
+    handoff_reserve_shortfall_days,
     actual_cycle_days,
-    operational_deadline_date,
+    terms_condition,
+    intake_condition,
+    handoff_condition,
+    pre_sap_exceeded_standard,
     is_leakage,
     lost_discount_amount,
     primary_cause,
     primary_cause_group,
+    primary_owner,
     is_still_feasible,
     requires_expedited_processing,
-    is_timing_contributor    
+    is_timing_contributor
 from with_leakage

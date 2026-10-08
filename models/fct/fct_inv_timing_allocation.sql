@@ -4,20 +4,29 @@ with timing_invoices as (
 
     select
         sap_inv_key,
+        primary_cause,
         lost_discount_amount,
         discount_deadline_date,
         sap_entry_date,
         clearing_date,
         receipt_date,
+        runway_at_handoff,
+        minimum_payment_runway_days,
         case
-            when discount_deadline_date >= sap_entry_date then 'payment'
+            when runway_at_handoff >= minimum_payment_runway_days
+                then 'payment'
             else 'pre_posting'
         end as allocation_regime,
         datediff('day', discount_deadline_date, clearing_date) as post_deadline_days
     from {{ ref('fct_inv_sap') }}
     -- Period: is_leakage already implies is_kpi_entitled (clearing in reporting period vars).
+    -- D89: Version 6 timing-group primary causes only.
     where is_leakage
-      and primary_cause = 'timing'
+      and primary_cause in (
+          'pre_sap_execution_compressed',
+          'pre_sap_execution_standard',
+          'payment_execution'
+      )
 
 ),
 
