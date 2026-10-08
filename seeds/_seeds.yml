@@ -6,6 +6,35 @@ seeds:
         tests:
           - unique
           - not_null
+  - name: seed_attribution_policy
+    description: >
+      Versioned leakage attribution policy parameters (D83, D90).
+      Active row drives int_attribution_policy_active and fct_inv_sap V6 fields.
+    columns:
+      - name: attribution_policy_version
+        description: Policy label echoed on invoice fact (e.g. v6).
+        tests:
+          - not_null
+          - unique
+      - name: minimum_processing_days
+        description: Expedited minimum pre-SAP calendar days (V6 default 4).
+        tests:
+          - not_null
+      - name: standard_processing_days
+        description: Standard pre-SAP calendar days (V6 default 7).
+        tests:
+          - not_null
+      - name: minimum_payment_runway_days
+        description: Payment runway required at SAP handoff (V6 default 3).
+        tests:
+          - not_null
+      - name: is_active
+        description: Exactly one row must be true for production builds.
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [true, false]
   - name: raw_inv_coupa
     config:
       quote_columns: true
