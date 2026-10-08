@@ -680,7 +680,7 @@ D75 Overlay sources v2 [POLICY] — supersedes D40/D60 seed path for Coupa/manua
 - Remove `raw_inv_timing_overlay` and `src_inv_timing_overlay`.
 - Derive in dbt from `fct_inv_coupa_changes` via `int_inv_coupa_overlay_intervals`:
   - `on_hold`: status `on_hold` → interval_start = event_date; interval_end = next change `event_date` on same `coupa_id` (order: event_date, revision_seq, coupa_change_id).
-  - `rework`: each `rejected` → interval from latest prior `submitted` on same `coupa_id` (max `coupa_change_id` &lt; reject id) through reject `event_date`.
+  - `rework`: each `rejected` → interval from latest prior `submitted` on same `coupa_id` (max `coupa_change_id` < reject id) through reject `event_date`.
   - `inv_dispute`: status `disputed` (informational in `seed_coupa_status_map`) → same interval rule as `on_hold`.
 - Map `coupa_id` → `sap_inv_key` with `map_inv_sap_coupa`; only matched invoices.
 - Union in `fct_inv_timing_overlay` with `int_inv_sap_payment_block_intervals` and derived `payment_run_wait` (unchanged).

@@ -4,7 +4,7 @@ from pathlib import Path
 from fpdf import FPDF
 from fpdf.enums import TableCellFillMode, VAlign
 
-OUT = Path(__file__).resolve().parent / "cash_discount_report_2024_v1.pdf"
+OUT = Path(__file__).resolve().parent / "cash_discount_report_2024_v6.pdf"
 
 MARGIN = 20
 TABLE_INSET = 1.0
@@ -166,12 +166,11 @@ def main() -> None:
         (0.54, 0.16, 0.30),
         [
             ("Reason", "Invoices", "Lost discount (EUR)"),
-            ("Timing (detail in section 5)", "6", "95.80"),
+            ("Timing (detail in section 5)", "7", "107.80"),
             ("Paid in time but discount not captured", "2", "28.40"),
             ("Terms vs operational capability", "1", "20.00"),
             ("Data quality", "1", "18.00"),
             ("Too little time at intake", "1", "16.00"),
-            ("Compressed intake window", "1", "12.00"),
         ],
     )
     para(pdf, "Total lost: EUR 190.20 across 12 invoices.")
@@ -183,17 +182,16 @@ def main() -> None:
         f"Terms vs capability (EUR 20.00): Align payment terms with how fast you can pay. Start with: {ACME}.",
         f"Data quality (EUR 18.00): Fix missing receipt or linkage on SAP-only intake. Start with: {FASTPAY}.",
         f"Too little time at intake (EUR 16.00): Shorten receipt-to-ready time. Start with: {GLOBAL_PARTS}.",
-        f"Compressed intake (EUR 12.00): Expedite when few days remain at intake. Start with: {NORDIC}.",
     ]
     for b in bullets:
         para(pdf, f"- {b}")
 
-    heading(pdf, "5. Timing loss (EUR 95.80)")
+    heading(pdf, "5. Timing loss (EUR 107.80)")
     para(
         pdf,
         "This section splits timing-related loss across process steps. "
-        "Amounts show how lost discount is attributed across days in each step; "
-        "they sum to EUR 95.80 and are for prioritisation, not a recovery forecast.",
+        "Attribution uses a three-day payment runway at SAP posting (Version 6). "
+        "Amounts sum to EUR 107.80 and are for prioritisation, not a recovery forecast.",
     )
 
     para(pdf, "5.1 Before SAP posting vs payment", FONT_BODY, "B")
@@ -202,7 +200,7 @@ def main() -> None:
         (0.62, 0.38),
         [
             ("Part of the process", "Timing loss (EUR)"),
-            ("Before invoice is posted in SAP", "49.00"),
+            ("Before invoice is posted in SAP", "61.00"),
             ("Payment (after posting)", "46.80"),
         ],
     )
@@ -220,6 +218,12 @@ def main() -> None:
         pdf,
         "- Interface / handoff to SAP: largest share for several suppliers - "
         "shorten the gap between approval in Coupa and posting in SAP.",
+    )
+    para(
+        pdf,
+        f"- Pre-SAP execution under pressure (EUR 12.00): accounting had a feasible but "
+        f"compressed window and did not preserve the payment runway before the deadline. "
+        f"Supplier: {NORDIC}.",
     )
     para(
         pdf,
@@ -302,16 +306,10 @@ def main() -> None:
                 GLOBAL_PARTS,
             ),
             (
-                "Intake",
-                "Expedite when few days at intake",
-                "12.00",
-                NORDIC,
-            ),
-            (
                 "Timing - before posting",
-                "Cut interface delay; resolve disputes and holds",
-                "49.00",
-                vendors_start_with(ACME, GLOBAL_PARTS, PRECISION),
+                "Cut interface delay; resolve disputes and holds; protect payment runway",
+                "61.00",
+                vendors_start_with(ACME, GLOBAL_PARTS, NORDIC, PRECISION),
             ),
             (
                 "Timing - payment",
@@ -329,7 +327,7 @@ def main() -> None:
     )
 
     pdf.add_page()
-    heading(pdf, "Timing actions by process order (EUR 95.80)")
+    heading(pdf, "Timing actions by process order (EUR 107.80)")
     para(pdf, "Use this order for workshops; amounts follow the split in section 5.")
     simple_table(
         pdf,
