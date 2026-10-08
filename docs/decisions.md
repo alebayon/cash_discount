@@ -565,13 +565,13 @@ Required boundary scenarios:
 15. sap_entry_date > clearing_date
     → data_quality_error
 
-Expected classifications on the current curriculum before any deliberate seed adjustment:
+Expected classifications on the curriculum (5b: 5100000018 reshaped to Rule 4 compressed):
 
 - 5100000003 → payment_execution
 - 5100000012 → capture
 - 5100000016 → structural_terms_vs_capability
 - 5100000017 → structural_insufficient_time_at_intake
-- 5100000018 → structural_insufficient_time_at_intake
+- 5100000018 → pre_sap_execution_compressed
 - 5100000019 → payment_execution
 - 5100000020 → capture
 - 5100000021 → data_quality_error
@@ -580,15 +580,15 @@ Expected classifications on the current curriculum before any deliberate seed ad
 - 5100000024 → pre_sap_execution_standard
 - 5100000025 → payment_execution
 
-The current curriculum has no pre_sap_execution_compressed example under 4/7/3. Add or deliberately rebaseline a labeled scenario so every active Version 6 primary cause has boundary coverage. Preserve chronology and downstream timing-span/event consistency when adjusting curriculum data.
+5100000018 is the labeled `pre_sap_execution_compressed` hero under 4/7/3 (Coupa receipt 2024-10-04; `processing_available_days` = 4; `runway_at_handoff` < 3). Coupa change dates on 10018 shifted to preserve subprocess chronology to CPUDT 2024-10-10.
 
-Before any curriculum adjustment, the expected leakage split is:
+Expected leakage split:
 
 - data_quality_error: 1 invoice / €18.00
 - capture: 2 invoices / €28.40
 - structural_terms_vs_capability: 1 invoice / €20.00
-- structural_insufficient_time_at_intake: 2 invoices / €28.00
-- pre_sap_execution_compressed: 0 invoices / €0.00
+- structural_insufficient_time_at_intake: 1 invoice / €16.00
+- pre_sap_execution_compressed: 1 invoice / €12.00
 - pre_sap_execution_standard: 3 invoices / €49.00
 - payment_execution: 3 invoices / €46.80
 
@@ -597,8 +597,9 @@ Total:
 - 12 leakage invoices
 - €190.20 leakage
 
-The timing group remains €95.80 before curriculum adjustment:
+The timing group is €107.80:
 
+- pre_sap_execution_compressed: €12.00
 - pre_sap_execution_standard: €49.00
 - payment_execution: €46.80
 

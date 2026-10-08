@@ -1,4 +1,4 @@
--- D90: every V6 primary_cause with leakage rows (compressed deferred until curriculum hero)
+-- D90: every V6 primary_cause represented on at least one leakage row
 with expected_buckets as (
     select column1 as primary_cause
     from values
@@ -6,6 +6,7 @@ with expected_buckets as (
         ('capture'),
         ('structural_terms_vs_capability'),
         ('structural_insufficient_time_at_intake'),
+        ('pre_sap_execution_compressed'),
         ('pre_sap_execution_standard'),
         ('payment_execution')
 ),

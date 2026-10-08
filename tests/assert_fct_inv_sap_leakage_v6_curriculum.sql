@@ -13,7 +13,7 @@ where doc_number in (
           when '5100000012' then 'capture'
           when '5100000016' then 'structural_terms_vs_capability'
           when '5100000017' then 'structural_insufficient_time_at_intake'
-          when '5100000018' then 'structural_insufficient_time_at_intake'
+          when '5100000018' then 'pre_sap_execution_compressed'
           when '5100000019' then 'payment_execution'
           when '5100000020' then 'capture'
           when '5100000021' then 'data_quality_error'
