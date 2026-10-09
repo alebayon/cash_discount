@@ -15,9 +15,6 @@ with raw as (
         cpudt,
         augdt,
         sknto,
-        payblk_clr,
-        disp_clr,
-        mgrblk_clr,
         nosknt_clr,
         xref2_hd
     from {{ ref('raw_inv_sap') }}
@@ -44,18 +41,6 @@ renamed as (
         cast(nullif(trim(sknto), '') as number(18, 2)) as discount_taken_amount,
         case
             when nullif(trim(augdt), '') is null then null
-            else coalesce(upper(nullif(trim(payblk_clr), '')) in ('X', 'TRUE', '1'), false)
-        end as payment_block_at_clearing,
-        case
-            when nullif(trim(augdt), '') is null then null
-            else coalesce(upper(nullif(trim(disp_clr), '')) in ('X', 'TRUE', '1'), false)
-        end as dispute_open_at_clearing,
-        case
-            when nullif(trim(augdt), '') is null then null
-            else coalesce(upper(nullif(trim(mgrblk_clr), '')) in ('X', 'TRUE', '1'), false)
-        end as match_or_gr_block_at_clearing,
-        case
-            when nullif(trim(augdt), '') is null then null
             else coalesce(upper(nullif(trim(nosknt_clr), '')) in ('X', 'TRUE', '1'), false)
         end as do_not_take_skonto_at_clearing,
         nullif(trim(xref2_hd), '') as coupa_posting_ref
@@ -79,9 +64,6 @@ select
     sap_entry_date,
     clearing_date,
     discount_taken_amount,
-    payment_block_at_clearing,
-    dispute_open_at_clearing,
-    match_or_gr_block_at_clearing,
     do_not_take_skonto_at_clearing,
     coupa_posting_ref
 from renamed

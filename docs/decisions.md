@@ -627,6 +627,26 @@ Do not split structural_insufficient_time_at_intake according to actual pre-SAP 
 Do not introduce standard_payment_days or a second payment threshold.
 
 
+2026-10-09 — KPI exclusion: do_not_take_skonto only
+
+Context:
+
+P1 stored four clearing snapshots on `fct_inv_sap` (2026-09-11). The funnel originally set `is_excluded` when any snapshot was true. Payment block, dispute, and match/GR flags remain useful for audit and timing overlays but are not treated as explained non-take for the headline leakage funnel.
+
+Status: BUILT.
+
+D91 Exclusion driver [POLICY] — supersedes OR logic in 2026-09-11 implementation entry for `is_excluded` only:
+
+- `is_excluded` = true when `is_kpi_entitled` and not `is_taken` and `do_not_take_skonto_at_clearing` is true.
+- `payment_block_at_clearing`, `dispute_open_at_clearing`, and `match_or_gr_block_at_clearing` remain on the fact (from `raw_inv_sap` / `src_inv_sap`) for reporting and future use; they do **not** set `is_excluded`.
+- Timing overlay `payment_block` (SAP change events, D58–D64) is unchanged and separate from clearing snapshots (D59).
+- Curriculum unchanged: only **5100000013** has `NOSKNT_CLR`; funnel remains 1 excluded / 12 leakage / €190.20.
+
+Why: Align EXCLUDED with an explicit decision not to take Skonto; avoid classifying operational blocks/disputes as “set aside” in the leakage KPI.
+
+Impact: `fct_inv_sap` `with_exclusion` CTE; `_fct__models.yml` `is_excluded` documentation. Historical decision text below still describes four stored flags; apply D91 for funnel derivation.
+
+
 2026-10-06 — Stakeholder PDF deliverable v1 (layout + implementation; not final design)
 
 Context:
@@ -842,7 +862,7 @@ D58 Scope [POLICY]:
 - Do not change fct_inv_timing_span or fct_inv_timing_overlay_span SQL. Do not change fct_inv_timing_allocation or mart_timing_* SQL for this slice.
 
 D59 Snapshot vs overlay [POLICY] — extends D38:
-- payment_block_at_clearing on fct_inv_sap remains clearing snapshot only (PAYBLK_CLR seed / exclusion funnel).
+- payment_block_at_clearing on fct_inv_sap remains clearing snapshot only (PAYBLK_CLR seed); audit column — not `is_excluded` driver (D91).
 - Overlay payment_block is duration during processing from change events; never derived from clearing snapshot flags.
 
 D60 Overlay sources [POLICY] — amends D40 for payment_block only:
@@ -2062,7 +2082,7 @@ dispute_open_at_clearing — invoice dispute open at clearing.
 match_or_gr_block_at_clearing — three-way match or GR incomplete at clearing.
 do_not_take_skonto_at_clearing — explicit instruction not to take Skonto at payment.
 
-Any flag true → is_excluded on eligible rows. Excluded rows are explained non-take, not leakage.
+Any flag true → is_excluded on eligible rows. Excluded rows are explained non-take, not leakage. **Superseded for funnel:** D91 — only `do_not_take_skonto_at_clearing` drives `is_excluded`; other three flags remain stored for audit.
 
 P1 implementation
 
@@ -2093,7 +2113,7 @@ Model: src_inv_sap (view, models/src/) — rename/cast only. Raw → payment_blo
 
 Fct enrichment
 
-Model: fct_inv_sap (table, models/fct/) — CTE chain extended: … → with_taken → with_exclusion. Pass through four snapshot columns. is_excluded (KPI funnel EXCLUDED node): true when is_kpi_entitled and not is_taken and any snapshot flag true; false on other eligible rows; null when not is_kpi_entitled or is_taken. OR logic across flags. Dates not used for is_excluded.
+Model: fct_inv_sap (table, models/fct/) — CTE chain extended: … → with_taken → with_exclusion. Pass through four snapshot columns. is_excluded (KPI funnel EXCLUDED node): **as of D91**, true when is_kpi_entitled and not is_taken and `do_not_take_skonto_at_clearing` only; false on other eligible rows; null when not is_kpi_entitled or is_taken. (Original P1: OR across all four flags.) Dates not used for is_excluded.
 
 Scope note (refines 2026-08-24)
 
@@ -2644,7 +2664,7 @@ Also track realized and excluded counts/amounts for funnel sanity checks.
 
 - Snapshot at `clearing_date`: `payment_block_at_clearing`, `dispute_open_at_clearing`, `match_or_gr_block_at_clearing`, `do_not_take_skonto_at_clearing`.
 - Values are **immutable** on the invoice payment fact after clearing (no refresh from current Coupa/SAP status).
-- `is_excluded` is derived only from these snapshot fields, evaluated when `is_entitled AND NOT is_taken`.
+- `is_excluded` is derived from **`do_not_take_skonto_at_clearing` only** (D91), evaluated when `is_kpi_entitled AND NOT is_taken`. Other snapshot columns are retained on the fact but do not drive the funnel.
 - Not paid: snapshot fields are NULL; exclusion is not evaluated for paid-period leakage KPIs.
 
 **Why:** Avoids retroactive reclassification when blocks/disputes are resolved after payment. Matches how AP audit and leakage analysis are done in practice.
