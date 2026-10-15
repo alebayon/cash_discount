@@ -432,3 +432,9 @@ Notable outputs: priority_allocated_eur, action_status, owner_role, gross_exposu
 | mart_timing_phase_impact | period × phase | Phase-level timing EUR for prioritisation |
 | mart_timing_phase_profile | period × phase | Phase duration portfolio (instrumentation) |
 | int_* | ephemeral | Policy row, Coupa/SAP blocker interval prep |
+
+## Sample stakeholder report
+
+Synthetic **2024** curriculum period — client-style summary of headline KPIs, leakage by cause, and timing actions (numbers align with mart tests).
+
+- **PDF:** [cash_discount_report_2024_v6.pdf](reports/cash_discount_report_2024_v6.pdf)

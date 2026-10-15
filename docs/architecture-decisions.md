@@ -182,7 +182,7 @@ Typical local workflow: `dbt seed` → `dbt build` (requires a configured dbt pr
 
 ## Stakeholder reporting
 
-Sample PDF and generator under `reports/` illustrate narrative binding to marts (headline KPIs, cause mix, timing actions). PDF is client-facing copy without internal model names; regeneration is documented in `reports/README.md`.
+Sample PDF and generator under `reports/` illustrate narrative binding to marts (headline KPIs, cause mix, timing actions). PDF is client-facing copy without internal model names; regenerate with `_generate_cash_discount_report_2024_v1.py` after `pip install fpdf2`.
 
 ---
 
