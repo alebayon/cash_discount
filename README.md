@@ -70,7 +70,7 @@ This analytics model is built around posted vendor invoices in accounts payable.
 
 ### Design principles
 
-####Invoice-centric metrics
+#### Invoice-centric metrics
 Net invoice value and cash-discount amounts are aggregated at invoice level. Dashboard-ready KPIs are built from that grain and from reporting period aggregates, not from single event rows alone.
 
 #### SAP as system of record for KPIs
@@ -188,7 +188,7 @@ Allocation is a management proration for prioritization. It is not a second root
 
 Each timing leakage invoice is assigned one allocation regime, driven by runway at handoff (SAP entry → discount deadline) compared to minimum payment runway days from attribution policy:
 
-| Regime | Condition (conceptually) | What gets allocated |
+| Regime | Condition | What gets allocated |
 |--------|---------------------------|---------------------|
 | Payment | Runway at handoff ≥ minimum payment runway | Euros only in the payment window, across payment timing buckets |
 | Pre-SAP ("pre_posting") | Runway at handoff < minimum payment runway | Euros across subprocess phases (and buckets within verification/approval) |
@@ -298,7 +298,7 @@ The model was built in layers. Each layer added capability without rewriting ear
 - Singular SQL tests guard the labeled curriculum (specific invoices, funnel counts, euro totals, reconciliation).
 - New slices extended tests without removing original funnel checks unless the curriculum intentionally changed.
 
-## Model inventory (detail)
+## Model inventory
 
 ### Tier A — core models
 
