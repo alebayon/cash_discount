@@ -4,3 +4,4 @@ logs/
 .env
 .user.yml
 profiles.yml
+decisions.md
