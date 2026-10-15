@@ -22,6 +22,10 @@ This dbt project simulates an Accounts Payable domain. It measures cash discount
 
 It delivers a prioritized list of recommended actions that highlights where time and euros concentrate for action and will help the user to solve systemic issues for future cash discount leakage prevention.
 
+## Design rationale
+
+See [docs/architecture-decisions.md](docs/architecture-decisions.md) for durable architecture and policy choices (public summary).
+
 ## Term definitions
 
 Allocation Eur: Impact expression of how much a phase or a blocker is contributing to the overall cash discount leakage in form of prorated amount. 
