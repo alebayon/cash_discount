@@ -1,57 +1,62 @@
 ---
 description: dbt cash_discount project conventions and context
 alwaysApply: true
+
 ---
-
 # cash_discount — dbt project
-
-Personal dbt project for **cash_discount** analytics and modeling.
+Personal dbt project for **cash_discount** analytics and modeling, with shared **ap_core** models built in this repo before package extract.
 Workspace: `C:\dbt\cash_discount`
 
 ## Before making changes
-
-- Read `docs/decisions.md` for architecture choices made in prior chats.
-- Follow the conventions defined in this rule and in `docs/decisions.md`.
+Read the decision log for the scope you are changing:
+| Scope | Log |
+|-------|-----|
+| Shared AP core (facts, terms, map, neutral timing, CD/WCO arbitration) | `ap_core/docs/core_decisions.md` |
+| Cash discount product (leakage, V6 attribution, CD marts, curriculum) | `docs/decisions.md` |
+- Follow conventions in this rule file and in that log.
+- **Core** grains/columns: `ap_core/docs/core_decisions.md` wins over `docs/decisions.md` until CD docs are updated explicitly.
+`ap_core/docs/core_decisions.md` structure: Project context → Architecture (stable chapter) → Open questions → Decisions → Model inventory → Conventions → Chat handoff notes.
 
 ## Model layering
-
 | Layer | Folder | Materialization | Naming |
 |-------|--------|-----------------|--------|
 | Sources / staging | `models/src/` | ephemeral or view | `src_<entity>.sql` |
+| Intermediate | `models/int/` | ephemeral | `int_<description>.sql` |
 | Dimensions | `models/dim/` | table | `dim_<entity>.sql` |
+| Maps | `models/map/` | table | `map_<entity>.sql` |
 | Facts | `models/fct/` | table | `fct_<event>.sql` |
 | Marts | `models/mart/` | table or view | `mart_<use_case>.sql` |
+**Tags:** `core` on shared models; `cash_discount` on CD product models. Select ancestors with `+tag:<name>` (e.g. `dbt build --select +tag:cash_discount`).
+**Spine:** `fct_inv_sap_core` (core) → `fct_inv_cash_discount` (product extension, same `sap_inv_key` grain).
 
 ## SQL style
-
 - Use CTEs; one logical step per CTE with a clear name.
 - Prefer explicit column lists over `SELECT *` in final outputs.
 - Reference sources with `{{ source('...', '...') }}` and models with `{{ ref('...') }}`.
+- Core cross-system fields: enrich via `map_inv_sap_coupa`, not SAP posting ref → Coupa alone.
 - Add schema YAML (`models/<layer>/_<layer>__models.yml`) for docs and tests.
 
 ## dbt commands (run from this folder)
-
 ```bash
 dbt debug
 dbt run
 dbt test
 dbt build
-```
 
 ## What not to commit
-
-- Credentials: keep `profiles.yml` in `~/.dbt/`, not in this repo.
-- Generated dirs: `target/`, `dbt_packages/`, `logs/`.
+Credentials: keep profiles.yml in ~/.dbt/, not in this repo.
+Generated dirs: target/, dbt_packages/, logs/.
 
 ## When a decision is made in chat
+Add a dated entry to the relevant log so future chats stay aligned:
+Core / shared AP → ap_core/docs/core_decisions.md (update Model inventory there when models change).
+Cash discount only → docs/decisions.md (update Model inventory there when models change).
 
-Add a dated entry to `docs/decisions.md` so future chats stay aligned.
-## Handoff format (see also `docs/decisions.md` → Conventions)
-
-- Proposed **decisions.md** additions: one copy-paste block per entry or section.
-- Proposed **seed or model** changes: full file/script ready to copy-paste (complete CSV, complete `.sql`, or complete YAML for that file).
 ## Handoff format (mandatory)
-- Proposed **decisions.md** additions: one copy-paste block per entry (full section text).
-- Proposed **seed, model, test, or YAML** changes: **complete file contents** for every path mentioned — not bullet instructions like “update the test” or “add a CTE”.
-- If only one hunk changes, still provide either the **full file** or a **single fenced block** labeled with the exact path that can replace the entire file.
-- **No exceptions:** the reader must be able to implement without opening the chat for missing lines.
+See also Conventions in ap_core/docs/core_decisions.md and docs/decisions.md when those sections exist.
+Proposed decisions additions: one copy-paste block per entry (full section text). Path = ap_core/docs/core_decisions.md or docs/decisions.md depending on scope.
+Proposed seed, model, test, or YAML changes: complete file contents for every path mentioned — not bullet instructions like “update the test” or “add a CTE”.
+If only one hunk changes, still provide either the full file or a single fenced block labeled with the exact path that can replace the entire file.
+No exceptions: the reader must be able to implement without opening the chat for missing lines.
+
+The old duplicate “Handoff format (see also…)” + shorter bullet list is folded into the single **Handoff format (mandatory)** block so agents don’t get two conflicting lists.
