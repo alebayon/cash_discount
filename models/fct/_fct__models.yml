@@ -1,6 +1,29 @@
 version: 2
 
 models:
+
+  - name: fct_inv_sap_core
+    description: >
+      Shared SAP vendor invoice spine (ap_core). One row per in-scope KR invoice.
+      Grain sap_inv_key. Durable facts, terms, map-based Coupa fields, and neutral
+      elapsed days only — no CD KPI or reporting-period fields.
+    columns:
+      - name: sap_inv_key
+        description: Composite business key (BELNR-BUKRS-GJAHR).
+        tests:
+          - unique
+          - not_null
+      - name: net_due_date
+        description: Contractual net due date (baseline_date + net_days from payment terms seed).
+      - name: coupa_posting_ref
+        description: >
+          SAP posting reference to Coupa (XREF2_HD). Matching input; confirmed
+          cross-system link is map_inv_sap_coupa.
+      - name: coupa_id
+        description: Coupa invoice id from map_inv_sap_coupa when a confirmed match exists.
+      - name: receipt_date
+        description: Mapped Coupa receipt anchor (created_at date) when coupa_id is present.
+
   - name: fct_inv_sap
     description: >
       SAP vendor invoice fact. One row per posted vendor invoice (KR).
