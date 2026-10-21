@@ -1,6 +1,6 @@
+{{ config(tags=['cash_discount']) }}
 {% set period_start = var('reporting_period_start', '2024-01-01') %}
 {% set period_end   = var('reporting_period_end', '2024-12-31') %}
-{{ config(tags=['cash_discount']) }}
 
 with base as (
     select *
@@ -11,18 +11,18 @@ with base as (
 with_entitlement as (
 
     select
-        wt.*,
+        ba.*,
         case
-            when wt.baseline_date is null
+            when ba.baseline_date is null
                 then 'no_baseline_date'
-            when wt.discount_pct is null or wt.discount_pct <= 0
+            when ba.discount_pct is null or ba.discount_pct <= 0
                 then 'no_discount_terms'
-            when wt.discount_deadline_date is null
+            when ba.discount_deadline_date is null
                 then 'no_deadline'
-            when wt.invoice_amount <= 0
+            when ba.invoice_amount <= 0
                 then 'zero_discount_base'
         end as not_entitled_reason
-    from base wt
+    from base ba
 
 ),
 
