@@ -283,6 +283,4 @@ Update row counts after `dbt build`.
 
 ## Chat handoff notes
 
-Last updated: 2026-10-21
-
-Split live: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` (shim). Map on `src_inv_sap`. Next: full `dbt build` green; timing overlay split; arbitration seed.
+Naming convention 2026-10-21 documented; overlay split next.
