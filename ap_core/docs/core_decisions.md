@@ -44,13 +44,15 @@ ap_core  ──►  daily_ops (later)
 
 Product-specific models stay in this repo under product dbt tags (e.g. `cash_discount`) until repos split.
 
-### SAP invoice fact naming
+### Fact naming (spine pairs vs in-repo-only)
 
-- **Pattern:** `fct_inv_sap_<suffix>` on the same grain (`sap_inv_key`).
-- **`_sap`** — SAP is the authoritative invoice source; all extensions are SAP invoice–grain facts.
-- **Suffixes:** `core` (shared spine), `cd`, `otp`, `wco`, etc. Short product codes, not full repo names.
-- **Extensions:** `ref('fct_inv_sap_core')` + product-specific columns. Reject one wide `fct_inv_sap` with all product fields.
-- **Legacy shim:** `fct_inv_sap` → `ref('fct_inv_sap_cd')` until deprecated and refs migrate.
+| Pattern | When | Examples |
+|---------|------|----------|
+| `fct_inv_sap_core` + `fct_inv_sap_<product>` | SAP invoice grain; cross-repo contract | `fct_inv_sap_cd`, later `fct_inv_sap_otp` |
+| `fct_inv_timing_overlay_core` + `fct_inv_timing_overlay_<product>` | Overlay interval grain; observed in core, CD adds derived rows | `fct_inv_timing_overlay_cd` (`payment_run_wait`) |
+| No product suffix | Core building blocks, or product-only models with no core pair | `map_inv_sap_coupa`, `mart_cash_discount_kpi`, `fct_inv_timing_allocation` |
+
+dbt tags (`core`, `cash_discount`, …) drive builds; suffixes mark **cross-package spine pairs**, not every file in a product folder.
 
 ### Invoice spine (same grain, separate models)
 
@@ -112,6 +114,35 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 ---
 
 ## Decisions
+
+### 2026-10-21 — Model naming: ap_core vs product extensions [CONVENTION]
+
+**Context:** Monorepo today; later `ap_core`, `cash_discount`, `on_time_payment`, and other product repos. Need scannable names without redundant suffixes on every CD model.
+
+**Decision:**
+
+**ap_core (tag `core`; future `ap_core` package)**
+
+- Use **`_core`** on **spine facts** that have a matching product extension at the **same grain** and are part of the **cross-repo public contract**.
+  - Examples: `fct_inv_sap_core`, `fct_inv_timing_overlay_core` (observed Coupa + SAP block intervals only).
+- Other core models (`src_*`, `dim_*`, `map_*`, `int_*`, `fct_inv_coupa`, …): **no product suffix** — ownership is core via tag / package.
+
+**Product repos (e.g. tag `cash_discount`; future `cash_discount` repo)**
+
+- Use **`_<product>`** (e.g. **`_cd`**) only when the model **structurally depends on** a published ap_core model (extension or union on top of core at the same grain).
+  - Examples: `fct_inv_sap_cd` → `ref('fct_inv_sap_core')`; `fct_inv_timing_overlay_cd` → `ref('fct_inv_timing_overlay_core')` plus CD-only logic (e.g. `payment_run_wait`).
+- **Do not** suffix CD-only models that live entirely in the product repo and do not form a `_core` / `_<product>` pair with ap_core.
+  - Examples: `mart_cash_discount_kpi`, `fct_inv_timing_allocation`, CD-only ints — **no `_cd`**; repo (later) and dbt tag identify ownership.
+
+**Future products:** same pattern — `fct_inv_sap_otp`, `fct_inv_sap_wco` only where they extend `fct_inv_sap_core`; marts and secondary facts in those repos without `_otp` / `_wco` unless useful for clarity.
+
+**Legacy shims:** unsuffixed deprecated models (e.g. `fct_inv_sap` → `ref('fct_inv_sap_cd')`) until refs and tests migrate; document in model inventory with deprecation intent.
+
+**Lineage:** “Extends core” vs “CD-only” is **not** encoded with a second naming flag (e.g. double suffix). Use paired names (`*_core` / `*_cd` on the same stem), `ref()` lineage, and model inventory.
+
+**Why:** Cross-repo contracts stay explicit; in-repo-only models stay short; multi-repo layout replaces folder scanning for marts and ancillary facts.
+
+**Impact:** Timing overlay split uses `fct_inv_timing_overlay_core` + `fct_inv_timing_overlay_cd`; rename and YAML when implemented. Invoice split already uses `fct_inv_sap_core` / `fct_inv_sap_cd`.
 
 ### 2026-10-20 — ap_core scope and product boundaries [ARCHITECTURE]
 
@@ -246,6 +277,7 @@ Update row counts after `dbt build`.
 - **Handoff:** Proposed changes to this file = one full copy-paste block per dated entry. Proposed SQL/YAML/seeds = complete file contents (see `.cursor/rules/project.mdc`).
 - **Model inventory:** Update the table when adding or completing a core model.
 - **Versioning (post-extract):** Semantic versioning for `ap_core`; products pin releases in `packages.yml`.
+- **Naming (ap_core vs product):** `_core` on published spine facts that pair with product extensions; other core models unsuffixed. `_cd` (or `_otp`, `_wco`) only on models that `ref()` those core spines at the same grain—not on marts or CD-only facts that have no ap_core sibling. Legacy shims unsuffixed, deprecated. See decision 2026-10-21 — Model naming.
 
 ---
 
