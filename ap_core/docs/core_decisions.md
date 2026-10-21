@@ -232,7 +232,8 @@ Update row counts after `dbt build`.
 | `fct_inv_timing_overlay_observed` | fct | overlay interval | planned | Observed only |
 | `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | |
 | `int_*` / `fct_*` arbitration | core | sap_inv_key | planned | Name TBD |
-| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | in progress | CD logic built; SQL file still `fct_inv_cash_discount` until rename |
+| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; tag `cash_discount`; extends `fct_inv_sap_core` |
+| `fct_inv_sap` | fct (CD) | sap_inv_key | shim | Deprecated `select *` from `fct_inv_sap_cd`; keep until refs migrate |
 
 ---
 
@@ -252,4 +253,4 @@ Update row counts after `dbt build`.
 
 Last updated: 2026-10-21
 
-`fct_inv_sap_core` built (24 rows); map on `src_inv_sap`; CD logic on `fct_inv_cash_discount` (rename to `fct_inv_sap_cd` per 2026-10-21 convention). Next: rename + `fct_inv_sap` shim, then full `dbt build`.
+Split live: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` (shim). Map on `src_inv_sap`. Next: full `dbt build` green; timing overlay split; arbitration seed.
