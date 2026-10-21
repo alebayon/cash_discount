@@ -1,292 +1,255 @@
- apcore — decisions log
+# ap_core — decisions log
 
-Record durable choices for the shared AP knowledge model (`ap\_core`).
+Record durable choices for the **shared AP knowledge model** (`ap_core`).
+Built inside the `cash_discount` workspace until extracted as a dbt package; consumed by cash_discount, on_time_payment, working_capital, and later products.
 
-Built inside the `cash\_discount` workspace until extracted as a dbt package; consumed by cashdiscount, ontimepayment, workingcapital, and later products.
+**Related:** Cash-discount–only policy and curriculum → `docs/decisions.md` (legacy log until CD is refactored onto product extensions).
 
-Related: Cash-discount–only policy and curriculum → `docs/decisions.md` (legacy log until CD is refactored onto product extensions).
+---
 
---
+## Project context
 
-# Project context
+- **Package / layer name:** ap_core (dbt tag: `core`)
+- **Purpose:** Durable SAP invoice facts, payment terms and dates, Coupa process evidence, cross-system mapping, neutral timing spans, observed blocker intervals, and shared CD/WCO arbitration policy. No product KPI funnels (CD leakage, OTP late, WCO strategy compliance).
+- **Workspace (staging):** `C:\dbt\cash_discount` — core models live under `models/` with tag `core` until Phase 2 extract.
+- **Grain anchor:** One row per in-scope SAP vendor invoice, keyed by `sap_inv_key`.
+- **Calendar:** Calendar days throughout v0 (Snowflake `datediff('day', …)`), consistent with CD decisions D6.
 
- Package / layer name: apcore (dbt tag: `core`)
+---
 
- Purpose: Durable SAP invoice facts, payment terms and dates, Coupa process evidence, cross-system mapping, neutral timing spans, observed blocker intervals, and shared CD/WCO arbitration policy. No product KPI funnels (CD leakage, OTP late, WCO strategy compliance).
+## Architecture
 
- Workspace (staging): `C:\\dbt\\cash\_discount` — core models live under `models/` with tag `core` until Phase 2 extract.
+### Repositories and dependencies (target)
 
- Grain anchor: One row per in-scope SAP vendor invoice, keyed by `sap\_inv\_key`.
+```
+ap_core  ──►  cash_discount
+ap_core  ──►  on_time_payment
+ap_core  ──►  working_capital
+ap_core  ──►  daily_ops (later)
+```
 
- Calendar: Calendar days throughout v0 (Snowflake `datediff('day', …)`), consistent with CD decisions D6.
+- Products **do not** depend on each other for primary KPIs (OTP does not use CD; WCO does not require CD leakage models).
+- Shared **CD/WCO arbitration** lives in core; CD and WCO **consume** it; OTP does **not** use arbitration.
+- Cross-product reporting may combine marts later; no circular package dependencies.
 
---
-
-# Architecture
-
-
-
-## Repositories and dependencies (target)
-
-apcore ──► cashdiscount 
-
-apcore ──► ontimepayment 
-
-apcore ──► workingcapital 
-
-apcore ──► dailyops (later)
-
- Products do not depend on each other for primary KPIs (OTP does not use CD; WCO does not require CD leakage models).
-
- Shared CD/WCO arbitration lives in core; CD and WCO consume it; OTP does not use arbitration.
-
- Cross-product reporting may combine marts later; no circular package dependencies.
-
-## Layering (in this repo, pre-extract)
+### Layering (in this repo, pre-extract)
 
 | Layer | Folder | Materialization | Naming |
-
 |-------|--------|-----------------|--------|
+| Staging | `models/src/` | view | `src_*` |
+| Intermediate | `models/int/` | ephemeral | `int_*` |
+| Dimensions | `models/dim/` | table | `dim_*` |
+| Maps | `models/map/` | table | `map_*` |
+| Facts | `models/fct/` | table | `fct_*` |
 
-| Staging | `models/src/` | view | `src\_\*` |
+Product-specific models stay in this repo under product dbt tags (e.g. `cash_discount`) until repos split.
 
-| Intermediate | `models/int/` | ephemeral | `int\_\*` |
+### SAP invoice fact naming
 
-| Dimensions | `models/dim/` | table | `dim\_\*` |
+- **Pattern:** `fct_inv_sap_<suffix>` on the same grain (`sap_inv_key`).
+- **`_sap`** — SAP is the authoritative invoice source; all extensions are SAP invoice–grain facts.
+- **Suffixes:** `core` (shared spine), `cd`, `otp`, `wco`, etc. Short product codes, not full repo names.
+- **Extensions:** `ref('fct_inv_sap_core')` + product-specific columns. Reject one wide `fct_inv_sap` with all product fields.
+- **Legacy shim:** `fct_inv_sap` → `ref('fct_inv_sap_cd')` until deprecated and refs migrate.
 
-| Maps | `models/map/` | table | `map\_\*` |
-
-| Facts | `models/fct/` | table | `fct\_\*` |
-
-- **SAP invoice product facts:** `fct_inv_sap_<suffix>` where `<suffix>` is `core`, `cd`, `otp`, `wco`, etc. Grain remains `sap_inv_key`; `_sap` reflects SAP as the authoritative invoice source.
-- **Shim:** `fct_inv_sap` → `ref('fct_inv_sap_cd')` until deprecated.
-
-
-
-## Invoice spine (same grain, separate models)
+### Invoice spine (same grain, separate models)
 
 | Model | Owner | Role |
-
 |-------|--------|------|
+| `fct_inv_sap_core` | core | Facts, terms, dates, map-based Coupa fields, neutral elapsed days |
+| `fct_inv_sap_cd` | cash_discount | CD eligibility, arbitration consumption, reporting period, leakage funnel, V6 |
+| `fct_inv_sap_otp` | on_time_payment (later) | Net-due lateness, OTP reporting period |
+| `fct_inv_sap_wco` | working_capital (later) | Strategy compliance vs `pursue_cd` / `target_net` |
 
-| `fct\_inv\_sap\_core` | core | Facts, terms, dates, map-based Coupa fields, neutral elapsed days |
-
-| `fct\_inv\_sap\_cd` | cashdiscount | CD eligibility, arbitration consumption, reporting period, leakage funnel, V6 |
-
-| `fct\_inv\_sap\_otp` | ontimepayment (later) | Net-due lateness, OTP reporting period |
-
-| `fct\_inv\_sap\_wco` | workingcapital (later) | Strategy compliance vs pursuecd / targetnet |
-
-Rejected: One wide `fct\_inv\_sap` with all product columns. Accepted: Product extensions `ref('fct\_inv\_sap\_core')` + product columns.
-
-Temporary compatibility: `fct\_inv\_sap` may point at `fct\_inv\_cash\_discount` during migration; deprecate explicitly.
-
-## SAP vs Coupa
+### SAP vs Coupa
 
 | System | Core responsibility |
-
 |--------|---------------------|
+| **SAP** | Invoice identity, amounts, baseline/payment terms, posting/entry/clearing dates, discount posted at clearing, clearing flags |
+| **Coupa** | Pre-SAP receipt/workflow evidence, statuses, change history |
 
-| SAP | Invoice identity, amounts, baseline/payment terms, posting/entry/clearing dates, discount posted at clearing, clearing flags |
+**Cross-system rule:** Enrich SAP invoices with Coupa `coupa_id` and `receipt_date` only through **`map_inv_sap_coupa`**. `coupa_posting_ref` on SAP is a matching input, not a substitute for the map.
 
-| Coupa | Pre-SAP receipt/workflow evidence, statuses, change history |
+### Timing boundary
 
-Cross-system rule: Enrich SAP invoices with Coupa `coupa\_id` and `receipt\_date` only through `map\_inv\_sap\_coupa`. `coupa\_posting\_ref` on SAP is a matching input, not a substitute for the map.
+**Core (neutral / observed):**
 
-## Timing boundary
+- `fct_inv_timing_span` — ownership and subprocess intervals
+- `int_inv_coupa_overlay_intervals`, `int_inv_sap_payment_block_intervals`
+- `fct_inv_timing_overlay_observed` — union of observed Coupa + SAP block intervals only
+- `fct_inv_timing_overlay_span_observed` — overlap of observed intervals with neutral spans
 
-Core (neutral / observed):
+**Not in core:**
 
- `fct\_inv\_timing\_span` — ownership and subprocess intervals
-
- `int\_inv\_coupa\_overlay\_intervals`, `int\_inv\_sap\_payment\_block\_intervals`
-
- `fct\_inv\_timing\_overlay\_observed` — union of observed Coupa + SAP block intervals only
-
- `fct\_inv\_timing\_overlay\_span\_observed` — overlap of observed intervals with neutral spans
-
-Not in core:
-
- `payment\_run\_wait` (CD payment window remainder; depends on discount deadline, leakage, V6 paymentexecution population)
-
- Timing euro allocation (lost discount — CD measure)
+- `payment_run_wait` (CD payment window remainder; depends on discount deadline, leakage, V6 `payment_execution` population)
+- Timing euro allocation (lost discount — CD measure)
 
 CD keeps full overlay union, allocation, and timing marts.
 
-## dbt selection
+### dbt selection
 
-Use ancestors of a product tag: `dbt build --select +tag:cash\_discount` (leading `+`).  
+Use **ancestors** of a product tag: `dbt build --select +tag:cash_discount` (leading `+`).
+Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 
-Do not use `tag:cash\_discount+` when the goal is to build upstream core first.
+### Implementation sequence (reference)
 
-## Implementation sequence (reference)
+0. Document contract (this file)
+1. Split `fct_inv_sap_core` + `fct_inv_sap_cd` inside `cash_discount`; keep curriculum green
+2. Arbitration curriculum + shared policy model
+3. Extract `ap_core` package v0.1.0
+4. Pin package from `cash_discount`; remove duplicated core
+5. CI + semver contracts
+6. Build OTP against core only
 
-0 Document contract (this file)  
+---
 
-1 Split `fct\_inv\_sap\_core` + `fct\_inv\_cash\_discount` inside `cash\_discount`; keep curriculum green  
+## Open questions
 
-2 Arbitration curriculum + shared policy model  
+- Production source and definition for `receipt_date` (synthetic v0 uses Coupa `created_at` on mapped invoices).
+- **Terms at clearing / effective-dated payment terms** — rebuilds can change `discount_deadline_date` and `net_due_date` if terms are read as current state; document limitation for v0; design history before production-grade OTP/CD audit claims.
+- Authoritative date for arbitration policy version if `document_date` is replaced later.
 
-3 Extract `ap\_core` package v0.1.0  
+---
 
-4 Pin package from `cash\_discount`; remove duplicated core  
+## Decisions
 
-5 CI + semver contracts  
+### 2026-10-20 — ap_core scope and product boundaries [ARCHITECTURE]
 
-6 Build OTP against core only  
+**Context:** Multiple AP products will share the same SAP invoice grain. CD logic currently lives in a monolithic `fct_inv_sap`.
 
---
+**Decision:** Introduce `ap_core` as the shared layer: facts, contractual terms/dates, process evidence, neutral timing, shared arbitration. Products add eligibility, KPI scope, and outcomes. Build core inside `cash_discount` before package extract.
 
-# Open questions
+**Why:** Avoid duplicate pipelines across repos; keep product denominators and policies independent.
 
- Production source and definition for `receipt\_date` (synthetic v0 uses Coupa `created\_at` on mapped invoices).
+**Impact:** New `fct_inv_sap_core`; CD refactor to `fct_inv_sap_cd`; future OTP repo depends only on `ap_core`.
 
- Terms at clearing / effective-dated payment terms — rebuilds can change `discount\_deadline\_date` and `net\_due\_date` if terms are read as current state; document limitation for v0; design history before production-grade OTP/CD audit claims.
+---
 
- Authoritative date for arbitration policy version if `document\_date` is replaced later.
+### 2026-10-20 — `fct_inv_sap_core` public contract (v0) [CONTRACT]
 
---
+**Context:** Consumers need a stable invoice spine without product KPIs.
 
-# Decisions
+**Decision:** Core exposes at minimum:
 
+- **Identity / SAP:** `sap_inv_key`, `doc_number`, `company_code`, `fiscal_year`, `vendor_id`, `document_type`, `baseline_date`, `payment_terms`, `invoice_amount`, `invoice_amount_eur`, `currency_code`, `document_fx_rate`, `posting_date`, `sap_entry_date`, `document_date`, `clearing_date`
+- **Terms:** `discount_pct`, `discount_days`, `discount_deadline_date`, `net_days`, `net_due_date`
+- **Payment facts:** `discount_taken_amount`, `discount_taken_amount_eur`, `do_not_take_skonto_at_clearing`
+- **Cross-system:** `coupa_posting_ref`, mapped `coupa_id`, mapped `receipt_date`
+- **Lifecycle:** `is_cleared`
+- **Neutral elapsed:** `pre_sap_elapsed_days` (receipt → sap_entry), `actual_cycle_days` (receipt → clearing)
 
+EUR amounts use document-date FX; `invoice_amount_eur` is stable on rebuild for a given document.
 
-## 2026-10-20 — apcore scope and product boundaries ARCHITECTURE]
+**Rejected on core:** `is_paid_in_period`, `is_entitled`, `is_kpi_entitled`, `is_taken`, `is_excluded`, `is_leakage`, lost discount, OTP/WCO flags, Version 6 attribution fields, `primary_cause`.
 
-Context: Multiple AP products will share the same SAP invoice grain. CD logic currently lives in a monolithic `fct\_inv\_sap`.
+**Why:** Reporting period and product classification are product-owned; core stays durable across products.
 
-Decision: Introduce `ap\_core` as the shared layer: facts, contractual terms/dates, process evidence, neutral timing, shared arbitration. Products add eligibility, KPI scope, and outcomes. Build core inside `cash\_discount` before package extract.
+**Impact:** Column list for `fct_inv_sap_core.sql` and `_fct__models.yml`; products derive period gates from `clearing_date` + vars.
 
-Why: Avoid duplicate pipelines across repos; keep product denominators and policies independent.
+---
 
-Impact: New `fct\_inv\_sap\_core`; CD refactor to `fct\_inv\_cash\_discount`; future OTP repo depends only on `ap\_core`.
+### 2026-10-20 — Vendor dimensions retain inactive records [POLICY]
 
---
+**Context:** Historical invoices must keep valid vendor keys after deactivation.
 
-## 2026-10-20 — `fct\_inv\_sap\_core` public contract (v0) CONTRACT]
+**Decision:** `dim_vendor_sap` and `dim_vendor_coupa` retain inactive/deleted suppliers; expose `is_active` (or equivalent). Do not filter them out of core dimensions.
 
-Context: Consumers need a stable invoice spine without product KPIs.
+**Impact:** May diverge from current CD dims that filter active-only until core dims are adopted.
 
-Decision: Core exposes at minimum:
+---
 
- Identity / SAP: `sap\_inv\_key`, `doc\_number`, `company\_code`, `fiscal\_year`, `vendor\_id`, `document\_type`, `baseline\_date`, `payment\_terms`, `invoice\_amount`, `invoice\_amount\_eur`, `currency\_code`, `document\_fx\_rate`, `posting\_date`, `sap\_entry\_date`, `document\_date`, `clearing\_date`
+### 2026-10-20 — CD/WCO arbitration v1 in core [POLICY]
 
- Terms: `discount\_pct`, `discount\_days`, `discount\_deadline\_date`, `net\_days`, `net\_due\_date`
+**Context:** Some terms-eligible invoices should not be CD targets (immaterial saving or excessive cash acceleration).
 
- Payment facts: `discount\_taken\_amount`, `discount\_taken\_amount\_eur`, `do\_not\_take\_skonto\_at\_clearing`
+**Decision:** Core holds `seed_cd_wco_arbitration_policy` and a shared arbitration model (grain `sap_inv_key`). v1 parameters:
 
- Cross-system: `coupa\_posting\_ref`, mapped `coupa\_id`, mapped `receipt\_date`
-
- Lifecycle: `is\_cleared`
-
- Neutral elapsed: `pre\_sap\_elapsed\_days` (receipt → sapentry), `actual\_cycle\_days` (receipt → clearing)
-
-EUR amounts use document-date FX; `invoice\_amount\_eur` is stable on rebuild for a given document.
-
-Rejected on core: `is\_paid\_in\_period`, `is\_entitled`, `is\_kpi\_entitled`, `is\_taken`, `is\_excluded`, `is\_leakage`, lost discount, OTP/WCO flags, Version 6 attribution fields, `primary\_cause`.
-
-Why: Reporting period and product classification are product-owned; core stays durable across products.
-
-Impact: Column list for `fct\_inv\_sap\_core.sql` and `\_fct\_\_models.yml`; products derive period gates from `clearing\_date` + vars.
-
---
-
-## 2026-10-20 — Vendor dimensions retain inactive records POLICY]
-
-Context: Historical invoices must keep valid vendor keys after deactivation.
-
-Decision: `dim\_vendor\_sap` and `dim\_vendor\_coupa` retain inactive/deleted suppliers; expose `is\_active` (or equivalent). Do not filter them out of core dimensions.
-
-Impact: May diverge from current CD dims that filter active-only until core dims are adopted.
-
---
-
-## 2026-10-20 — CD/WCO arbitration v1 in core POLICY]
-
-Context: Some terms-eligible invoices should not be CD targets (immaterial saving or excessive cash acceleration).
-
-Decision: Core holds `seed\_cd\_wco\_arbitration\_policy` and a shared arbitration model (grain `sap\_inv\_key`). v1 parameters:
-
- `minimum\_potential\_discount\_eur` = 10  
-
- `maximum\_cash\_acceleration\_days` = 20 (inclusive)
+- `minimum_potential_discount_eur` = 10
+- `maximum_cash_acceleration_days` = 20 (inclusive)
 
 Derived:
 
- `potential\_discount\_eur` = `invoice\_amount\_eur \* discount\_pct`  
+- `potential_discount_eur` = `invoice_amount_eur * discount_pct`
+- `cash_acceleration_days` = calendar days from `discount_deadline_date` to `net_due_date`
+- `is_cd_eligible` (for CD consumption) = terms eligible AND amount gate AND acceleration gate (AND, no compensation)
+- `payment_strategy` = `pursue_cd` | `target_net`
+- `not_cd_eligible_reason` per handoff vocabulary
 
- `cash\_acceleration\_days` = calendar days from `discount\_deadline\_date` to `net\_due\_date`  
+Policy version selected by effective date; v1 evaluation date = `document_date`.
 
- `is\_cd\_eligible` (for CD consumption) = terms eligible AND amount gate AND acceleration gate (AND, no compensation)  
+**Not in v1:** hurdle rates, vendor overrides, weighted scoring, single gate overriding the other.
 
- `payment\_strategy` = `pursue\_cd` | `target\_net`  
+**Impact:** Seed + model in core; `fct_inv_sap_cd` consumes; OTP ignores.
 
- `not\_cd\_eligible\_reason` per handoff vocabulary  
+---
 
-Policy version selected by effective date; v1 evaluation date = `document\_date`.
+### 2026-10-20 — OTP v1 rule (documented for core consumers) [POLICY]
 
-Not in v1: hurdle rates, vendor overrides, weighted scoring, single gate overriding the other.
+**Context:** OTP will be a separate product on core only.
 
-Impact: Seed + model in core; `fct\_inv\_cash\_discount` consumes; OTP ignores.
+**Decision:** OTP v1 uses `net_due_date` and `clearing_date` from core. `otp_grace_days` default 0. `is_late` when `days_after_net_due > otp_grace_days`. No CD arbitration in OTP v1.
 
---
+**Impact:** Core must ship valid `net_due_date`; OTP repo not started until core contract tested.
 
-## 2026-10-20 — OTP v1 rule (documented for core consumers) POLICY]
+---
 
-Context: OTP will be a separate product on core only.
+### 2026-10-21 — SAP invoice product fact naming [CONVENTION]
 
-Decision: OTP v1 uses `net\_due\_date` and `clearing\_date` from core. `otp\_grace\_days` default 0. `is\_late` when `days\_after\_net\_due > otp\_grace\_days`. No CD arbitration in OTP v1.
+**Context:** Product extensions share SAP invoice grain; naming should reflect SAP as source and use short product suffixes.
 
-Impact: Core must ship valid `net\_due\_date`; OTP repo not started until core contract tested.
+**Decision:**
 
---
+- Shared spine: `fct_inv_sap_core`
+- Cash discount extension: `fct_inv_sap_cd` (dbt tag remains `cash_discount`)
+- Future: `fct_inv_sap_otp`, `fct_inv_sap_wco`
+- Legacy compatibility: `fct_inv_sap` is a deprecated shim to `fct_inv_sap_cd` until removed
 
-# Model inventory
+**Rejected:** `fct_inv_cash_discount` as the long-term model name (product code `_cd` aligns with `_core`).
+
+**Impact:** Rename `fct_inv_cash_discount.sql` → `fct_inv_sap_cd.sql` and update refs; YAML and tests follow.
+
+---
+
+## Model inventory
 
 Update row counts after `dbt build`.
 
+| Object | Layer | Grain | Status | Notes |
+|--------|-------|-------|--------|-------|
+| `src_*` | src | per source | existing | Tagged `core` in dbt_project.yml |
+| `dim_vendor_sap` | dim | vendor | existing | Move to retain inactive + `is_active` (later) |
+| `dim_vendor_coupa` | dim | supplier | existing | Same |
+| `map_inv_sap_coupa` | map | (sap_inv_key, coupa_id) | existing | 21 rows; SAP side from `src_inv_sap` + `fct_inv_coupa` |
+| `fct_inv_coupa` | fct | coupa invoice | existing | |
+| `fct_inv_coupa_changes` | fct | change event | existing | |
+| `fct_inv_sap_changes` | fct | change event | existing | |
+| `seed_payment_term_sap` | seed | ZTERM | existing | Includes `net_days` |
+| `seed_cd_wco_arbitration_policy` | seed | policy version | planned | |
+| `fct_inv_sap_core` | fct | sap_inv_key | existing | 24 rows; tag `core`; public contract v0 |
+| `fct_inv_timing_span` | fct | span grain | existing | Core (not yet refactored to core-only deps) |
+| `int_inv_coupa_overlay_intervals` | int | interval | existing | Core |
+| `int_inv_sap_payment_block_intervals` | int | interval | existing | Core |
+| `fct_inv_timing_overlay_observed` | fct | overlay interval | planned | Observed only |
+| `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | |
+| `int_*` / `fct_*` arbitration | core | sap_inv_key | planned | Name TBD |
+| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | in progress | CD logic built; SQL file still `fct_inv_cash_discount` until rename |
 
-| Object                                 | Layer    | Grain                   | Status       | Notes                                                  |
-| -------------------------------------- | -------- | ----------------------- | ------------ | ------------------------------------------------------ |
-| `src_*`                                | src      | per source              | existing     | Tagged `core` in dbt_project.yml                       |
-| `dim_vendor_sap`                       | dim      | vendor                  | existing     | Move to retain inactive + `is_active` (later)          |
-| `dim_vendor_coupa`                     | dim      | supplier                | existing     | Same                                                   |
-| `map_inv_sap_coupa`                    | map      | (sap_inv_key, coupa_id) | existing     | 21 rows; SAP side from `src_inv_sap` + `fct_inv_coupa` |
-| `fct_inv_coupa`                        | fct      | coupa invoice           | existing     |                                                        |
-| `fct_inv_coupa_changes`                | fct      | change event            | existing     |                                                        |
-| `fct_inv_sap_changes`                  | fct      | change event            | existing     |                                                        |
-| `seed_payment_term_sap`                | seed     | ZTERM                   | existing     | Includes `net_days`                                    |
-| `seed_cd_wco_arbitration_policy`       | seed     | policy version          | planned      |                                                        |
-| `fct_inv_sap_core`                     | fct      | sap_inv_key             | **existing** | **24 rows**; tag `core`; public contract v0            |
-| `fct_inv_timing_span`                  | fct      | span grain              | existing     | Core (not yet refactored to core-only deps)            |
-| `int_inv_coupa_overlay_intervals`      | int      | interval                | existing     | Core                                                   |
-| `int_inv_sap_payment_block_intervals`  | int      | interval                | existing     | Core                                                   |
-| `fct_inv_timing_overlay_observed`      | fct      | overlay interval        | planned      | Observed only                                          |
-| `fct_inv_timing_overlay_span_observed` | fct      | overlap                 | planned      |                                                        |
-| `int_*` / `fct_*` arbitration          | core     | sap_inv_key             | planned      | Name TBD                                               |
-| `fct_inv_sap_cd`                       | fct (CD) | sap_inv_key             | planned      | Product extension                                      |
+---
 
+## Conventions (stable)
 
---
+- **Decision file:** This file is authoritative for core grains, columns, and shared policy.
+- **SAP invoice facts:** `fct_inv_sap_<suffix>` (`core`, `cd`, `otp`, `wco`); same `sap_inv_key` grain.
+- **Tag:** `core` on models that move to `ap_core` package; product tags (e.g. `cash_discount`) on CD models/marts.
+- **Keys:** `sap_inv_key` on SAP invoice facts; map tests guard orphan keys.
+- **Handoff:** Proposed changes to this file = one full copy-paste block per dated entry. Proposed SQL/YAML/seeds = complete file contents (see `.cursor/rules/project.mdc`).
+- **Model inventory:** Update the table when adding or completing a core model.
+- **Versioning (post-extract):** Semantic versioning for `ap_core`; products pin releases in `packages.yml`.
 
-# Conventions (stable)
+---
 
- Decision file: This file is authoritative for core grains, columns, and shared policy.
+## Chat handoff notes
 
- Tag: `core` on models that move to `ap\_core` package.
+Last updated: 2026-10-21
 
- Keys: `sap\_inv\_key` on SAP invoice facts; map tests guard orphan keys.
-
- Handoff: Proposed changes to this file = one full copy-paste block per dated entry. Proposed SQL/YAML/seeds = complete file contents (see `.cursor/rules/project.mdc`).
-
- Model inventory: Update the table when adding or completing a core model.
-
- Versioning (post-extract): Semantic versioning for `ap\_core`; products pin releases in `packages.yml`.
-
---
-
-# Chat handoff notes
-
-Last updated: 2026-10-20 
-
-— fct_inv_sap_core built (24 rows); map on src_inv_sap; next: fct_inv_cash_discount shell.
+`fct_inv_sap_core` built (24 rows); map on `src_inv_sap`; CD logic on `fct_inv_cash_discount` (rename to `fct_inv_sap_cd` per 2026-10-21 convention). Next: rename + `fct_inv_sap` shim, then full `dbt build`.

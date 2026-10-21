@@ -24,7 +24,7 @@ models:
       - name: receipt_date
         description: Mapped Coupa receipt anchor (created_at date) when coupa_id is present.
 
-  - name: fct_inv_sap
+  - name: fct_inv_sap_cd
     description: >
       SAP vendor invoice fact. One row per posted vendor invoice (KR).
       Grain sap_inv_key. Structural is_entitled is period-agnostic;
