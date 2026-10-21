@@ -380,50 +380,27 @@ Policy version selected by effective date; v1 evaluation date = `document\_date`
 
 \## Model inventory
 
-
-
-Update row counts after `dbt build`. Status: \*\*planned\*\* until core split lands.
-
-
+Update row counts after `dbt build`.
 
 | Object | Layer | Grain | Status | Notes |
-
 |--------|-------|-------|--------|-------|
-
-| `src\_\*` | src | per source | existing | Shared staging; tag core when split complete |
-
-| `dim\_vendor\_sap` | dim | vendor | existing | Move to retain inactive + `is\_active` |
-
-| `dim\_vendor\_coupa` | dim | supplier | existing | Same |
-
-| `map\_inv\_sap\_coupa` | map | (sap\_inv\_key, coupa\_id) | existing | Required for core Coupa enrichment |
-
-| `fct\_inv\_coupa` | fct | coupa invoice | existing | |
-
-| `fct\_inv\_coupa\_changes` | fct | change event | existing | |
-
-| `fct\_inv\_sap\_changes` | fct | change event | existing | |
-
-| `seed\_payment\_term\_sap` | seed | ZTERM | existing | Includes `net\_days` |
-
-| `seed\_cd\_wco\_arbitration\_policy` | seed | policy version | planned | |
-
-| `fct\_inv\_sap\_core` | fct | sap\_inv\_key | planned | Public contract above |
-
-| `fct\_inv\_timing\_span` | fct | span grain | existing | Core |
-
-| `int\_inv\_coupa\_overlay\_intervals` | int | interval | existing | Core |
-
-| `int\_inv\_sap\_payment\_block\_intervals` | int | interval | existing | Core |
-
-| `fct\_inv\_timing\_overlay\_observed` | fct | overlay interval | planned | Observed only |
-
-| `fct\_inv\_timing\_overlay\_span\_observed` | fct | overlap | planned | |
-
-| `int\_\*` / `fct\_\*` arbitration | core | sap\_inv\_key | planned | Name TBD |
-
-| `fct\_inv\_cash\_discount` | fct (CD) | sap\_inv\_key | planned | Product extension |
-
+| `src_*` | src | per source | existing | Tagged `core` in dbt_project.yml |
+| `dim_vendor_sap` | dim | vendor | existing | Move to retain inactive + `is_active` (later) |
+| `dim_vendor_coupa` | dim | supplier | existing | Same |
+| `map_inv_sap_coupa` | map | (sap_inv_key, coupa_id) | existing | 21 rows; SAP side from `src_inv_sap` + `fct_inv_coupa` |
+| `fct_inv_coupa` | fct | coupa invoice | existing | |
+| `fct_inv_coupa_changes` | fct | change event | existing | |
+| `fct_inv_sap_changes` | fct | change event | existing | |
+| `seed_payment_term_sap` | seed | ZTERM | existing | Includes `net_days` |
+| `seed_cd_wco_arbitration_policy` | seed | policy version | planned | |
+| `fct_inv_sap_core` | fct | sap_inv_key | **existing** | **24 rows**; tag `core`; public contract v0 |
+| `fct_inv_timing_span` | fct | span grain | existing | Core (not yet refactored to core-only deps) |
+| `int_inv_coupa_overlay_intervals` | int | interval | existing | Core |
+| `int_inv_sap_payment_block_intervals` | int | interval | existing | Core |
+| `fct_inv_timing_overlay_observed` | fct | overlay interval | planned | Observed only |
+| `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | |
+| `int_*` / `fct_*` arbitration | core | sap_inv_key | planned | Name TBD |
+| `fct_inv_cash_discount` | fct (CD) | sap_inv_key | planned | Product extension |
 
 
 \---
@@ -460,9 +437,7 @@ Update row counts after `dbt build`. Status: \*\*planned\*\* until core split la
 
 
 
-Last updated: 2026-10-20
+Last updated: 2026-10-20 
 
-
-
-Next build step: scaffold `fct\_inv\_sap\_core` (terms + `net\_due\_date` + map-based `receipt\_date`); keep `fct\_inv\_sap` shim until CD split is green. CD behavior unchanged in `docs/decisions.md` until refactor.
+— fct_inv_sap_core built (24 rows); map on src_inv_sap; next: fct_inv_cash_discount shell.
 
