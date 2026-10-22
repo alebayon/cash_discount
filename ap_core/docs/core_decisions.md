@@ -78,8 +78,8 @@ dbt tags (`core`, `cash_discount`, …) drive builds; suffixes mark **cross-pack
 
 - `fct_inv_timing_span` — ownership and subprocess intervals
 - `int_inv_coupa_overlay_intervals`, `int_inv_sap_payment_block_intervals`
-- `fct_inv_timing_overlay_observed` — union of observed Coupa + SAP block intervals only
-- `fct_inv_timing_overlay_span_observed` — overlap of observed intervals with neutral spans
+- `fct_inv_timing_overlay_core` — union of observed Coupa + SAP block intervals only (built)
+- `fct_inv_timing_overlay_span_observed` — overlap of observed intervals with neutral spans (planned)
 
 **Not in core:**
 
@@ -257,11 +257,14 @@ Update row counts after `dbt build`.
 | `seed_payment_term_sap` | seed | ZTERM | existing | Includes `net_days` |
 | `seed_cd_wco_arbitration_policy` | seed | policy version | planned | |
 | `fct_inv_sap_core` | fct | sap_inv_key | existing | 24 rows; tag `core`; public contract v0 |
-| `fct_inv_timing_span` | fct | span grain | existing | Core (not yet refactored to core-only deps) |
+| `fct_inv_timing_span` | fct | span grain | existing | Core (refs `fct_inv_sap` shim; optional cleanup to `_core` / `_cd`) |
 | `int_inv_coupa_overlay_intervals` | int | interval | existing | Core |
 | `int_inv_sap_payment_block_intervals` | int | interval | existing | Core |
-| `fct_inv_timing_overlay_observed` | fct | overlay interval | planned | Observed only |
-| `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | |
+| `fct_inv_timing_overlay_core` | fct | overlay interval | existing | 7 rows; observed Coupa + SAP blocks; tag `core` |
+| `fct_inv_timing_overlay_cd` | fct (CD) | overlay interval | existing | 10 rows; `_core` ∪ `payment_run_wait`; tag `cash_discount` |
+| `fct_inv_timing_overlay` | fct (CD) | overlay interval | shim | Deprecated `select *` from `fct_inv_timing_overlay_cd` |
+| `fct_inv_timing_overlay_span` | fct | overlap | existing | CD; joins overlay shim + timing span |
+| `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | Optional: span on `_core` only |
 | `int_*` / `fct_*` arbitration | core | sap_inv_key | planned | Name TBD |
 | `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; tag `cash_discount`; extends `fct_inv_sap_core` |
 | `fct_inv_sap` | fct (CD) | sap_inv_key | shim | Deprecated `select *` from `fct_inv_sap_cd`; keep until refs migrate |
@@ -283,4 +286,6 @@ Update row counts after `dbt build`.
 
 ## Chat handoff notes
 
-Naming convention 2026-10-21 documented; overlay split next.
+Last updated: 2026-10-22
+
+Invoice split: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` shim (24 rows). Timing overlay split: `fct_inv_timing_overlay_core` (7) → `fct_inv_timing_overlay_cd` (10) → `fct_inv_timing_overlay` shim. Map on `src_inv_sap`. Full `dbt build` green. Next: CD/WCO arbitration seed + model; optional ref hygiene on timing span / map FK.
