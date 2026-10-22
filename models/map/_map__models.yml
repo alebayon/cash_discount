@@ -7,13 +7,13 @@ models:
       Grain (sap_inv_key, coupa_id). Orphans stay in facts only.
     columns:
       - name: sap_inv_key
-        description: SAP invoice composite key. FK to fct_inv_sap.
+        description: SAP invoice composite key. FK to fct_inv_sap_core.
         tests:
           - unique
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_sap')
+                to: ref('fct_inv_sap_core')
                 field: sap_inv_key
       - name: coupa_id
         description: Coupa invoice system id. FK to fct_inv_coupa.

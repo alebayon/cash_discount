@@ -38,5 +38,5 @@ select
     m.event_date,
     m.block_event_role
 from mapped m
-inner join {{ ref('fct_inv_sap') }} inv
+inner join {{ ref('fct_inv_sap_core') }} inv
     on m.sap_inv_key = inv.sap_inv_key

@@ -387,17 +387,18 @@ models:
 
   - name: fct_inv_timing_span
     description: >
-      Process phase spans per invoice. Ownership branch reads fct_inv_sap only
-      (pre_sap, payment). Subprocess branch reads fct_inv_coupa_changes plus SAP
-      dates (intake, verification, approval, interface, payment). Does not
-      recompute leakage or Version 6 attribution. Population is all invoices.
+      Process phase spans per invoice (core timing). Ownership branch reads
+      fct_inv_sap_core milestones (pre_sap, payment). Subprocess branch reads
+      fct_inv_coupa_changes plus SAP dates (intake, verification, approval,
+      interface, payment). Does not recompute leakage or Version 6 attribution.
+      Population is in-scope invoices on the core spine.
     columns:
       - name: sap_inv_key
         tests:
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_sap')
+                to: ref('fct_inv_sap_core')
                 field: sap_inv_key
       - name: phase_level
         tests:
@@ -490,7 +491,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_sap')
+                to: ref('fct_inv_sap_core')
                 field: sap_inv_key
       - name: block_event_role
         tests:
