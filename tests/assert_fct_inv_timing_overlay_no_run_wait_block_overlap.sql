@@ -4,7 +4,7 @@ with run_wait as (
         sap_inv_key,
         interval_start_date,
         interval_end_date
-    from {{ ref('fct_inv_timing_overlay') }}
+    from {{ ref('fct_inv_timing_overlay_cd') }}
     where overlay_reason_code = 'payment_run_wait'
 ),
 
@@ -13,7 +13,7 @@ payment_block as (
         sap_inv_key,
         interval_start_date,
         interval_end_date
-    from {{ ref('fct_inv_timing_overlay') }}
+    from {{ ref('fct_inv_timing_overlay_cd') }}
     where overlay_reason_code = 'payment_block'
 )
 

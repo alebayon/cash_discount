@@ -136,13 +136,23 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 
 **Future products:** same pattern — `fct_inv_sap_otp`, `fct_inv_sap_wco` only where they extend `fct_inv_sap_core`; marts and secondary facts in those repos without `_otp` / `_wco` unless useful for clarity.
 
-**Legacy shims:** unsuffixed deprecated models (e.g. `fct_inv_sap` → `ref('fct_inv_sap_cd')`) until refs and tests migrate; document in model inventory with deprecation intent.
+**Legacy shims:** unsuffixed deprecated models (e.g. `fct_inv_sap` → `ref('fct_inv_sap_cd')`) until deleted; no downstream `ref()` to shims — enforced by `assert_no_deprecated_model_dependencies` on `on-run-start`.
 
 **Lineage:** “Extends core” vs “CD-only” is **not** encoded with a second naming flag (e.g. double suffix). Use paired names (`*_core` / `*_cd` on the same stem), `ref()` lineage, and model inventory.
 
 **Why:** Cross-repo contracts stay explicit; in-repo-only models stay short; multi-repo layout replaces folder scanning for marts and ancillary facts.
 
 **Impact:** Timing overlay split uses `fct_inv_timing_overlay_core` + `fct_inv_timing_overlay_cd`; rename and YAML when implemented. Invoice split already uses `fct_inv_sap_core` / `fct_inv_sap_cd`.
+
+### 2026-10-22 — Deprecated shim dependency guard [CONVENTION]
+
+**Context:** `fct_inv_sap` and `fct_inv_timing_overlay` remain as pass-through shims while the repo migrates to `fct_inv_sap_cd` and `fct_inv_timing_overlay_cd`.
+
+**Decision:** Run `assert_no_deprecated_model_dependencies()` on every `dbt run` / `test` / `build` via `on-run-start`. Any model, test, analysis, or snapshot that depends on a shim fails at compile time. Shims may only `ref()` their canonical replacements.
+
+**Why:** Makes shim removal a safe delete of two SQL files once CI is green; prevents new refs from re-coupling the DAG.
+
+**Impact:** `macros/assert_no_deprecated_model_dependencies.sql`; extend the deprecated model name list when adding new shims; remove the macro hook when all shims are gone.
 
 ### 2026-10-20 — ap_core scope and product boundaries [ARCHITECTURE]
 
@@ -257,17 +267,18 @@ Update row counts after `dbt build`.
 | `seed_payment_term_sap` | seed | ZTERM | existing | Includes `net_days` |
 | `seed_cd_wco_arbitration_policy` | seed | policy version | planned | |
 | `fct_inv_sap_core` | fct | sap_inv_key | existing | 24 rows; tag `core`; public contract v0 |
-| `fct_inv_timing_span` | fct | span grain | existing | Core (refs `fct_inv_sap` shim; optional cleanup to `_core` / `_cd`) |
+| `fct_inv_timing_span` | fct | span grain | existing | Core; refs `fct_inv_sap_core` |
 | `int_inv_coupa_overlay_intervals` | int | interval | existing | Core |
 | `int_inv_sap_payment_block_intervals` | int | interval | existing | Core |
 | `fct_inv_timing_overlay_core` | fct | overlay interval | existing | 7 rows; observed Coupa + SAP blocks; tag `core` |
 | `fct_inv_timing_overlay_cd` | fct (CD) | overlay interval | existing | 10 rows; `_core` ∪ `payment_run_wait`; tag `cash_discount` |
-| `fct_inv_timing_overlay` | fct (CD) | overlay interval | shim | Deprecated `select *` from `fct_inv_timing_overlay_cd` |
-| `fct_inv_timing_overlay_span` | fct | overlap | existing | CD; joins overlay shim + timing span |
+| `fct_inv_timing_overlay` | fct (CD) | overlay interval | shim | Deprecated `select *` from `fct_inv_timing_overlay_cd`; no downstream refs |
+| `fct_inv_timing_overlay_span` | fct | overlap | existing | CD; refs `fct_inv_timing_overlay_cd` + `fct_inv_timing_span` |
 | `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | Optional: span on `_core` only |
 | `int_*` / `fct_*` arbitration | core | sap_inv_key | planned | Name TBD |
 | `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; tag `cash_discount`; extends `fct_inv_sap_core` |
-| `fct_inv_sap` | fct (CD) | sap_inv_key | shim | Deprecated `select *` from `fct_inv_sap_cd`; keep until refs migrate |
+| `fct_inv_sap` | fct (CD) | sap_inv_key | shim | Deprecated `select *` from `fct_inv_sap_cd`; no downstream refs (see compile guard) |
+| `assert_no_deprecated_model_dependencies` | macro | — | existing | `on-run-start`; fails if any node refs a shim |
 
 ---
 
@@ -288,4 +299,4 @@ Update row counts after `dbt build`.
 
 Last updated: 2026-10-22
 
-Invoice split: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` shim (24 rows). Timing overlay: `_core` (7) → `_cd` (10) → shim. Ref hygiene done (YAML FKs, tests on `_cd`, map orphans on `_core`). Next: CD/WCO arbitration seed + model.
+Invoice split: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` shim (24 rows). Timing overlay: `_core` (7) → `_cd` (10) → shim. All models/tests/analyses ref `_core` / `_cd` only; `assert_no_deprecated_model_dependencies` on `on-run-start` blocks new shim refs. Safe to delete shim SQL when ready. Next: CD/WCO arbitration seed + model.

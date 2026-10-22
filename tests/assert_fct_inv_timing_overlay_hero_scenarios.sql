@@ -4,7 +4,7 @@ with overlay_counts as (
         s.doc_number,
         count(o.sap_inv_key) as overlay_row_count
     from {{ ref('fct_inv_sap_cd') }} s
-    left join {{ ref('fct_inv_timing_overlay') }} o
+    left join {{ ref('fct_inv_timing_overlay_cd') }} o
         on s.sap_inv_key = o.sap_inv_key
     where s.doc_number in (
         '5100000003',
@@ -50,7 +50,7 @@ hero_rows as (
         o.interval_days,
         o.source_change_id
     from {{ ref('fct_inv_sap_cd') }} s
-    inner join {{ ref('fct_inv_timing_overlay') }} o
+    inner join {{ ref('fct_inv_timing_overlay_cd') }} o
         on s.sap_inv_key = o.sap_inv_key
     where s.doc_number in (
         '5100000003',

@@ -306,19 +306,19 @@ The model was built in layers. Each layer added capability without rewriting ear
 
 ### Tier A — core models
 
-#### fct_inv_sap
+#### fct_inv_sap_core / fct_inv_sap_cd
 
-Description: SAP vendor invoice fact; authority for KPI funnel, leakage amount, and primary cause.
+Description: Shared SAP invoice spine (`fct_inv_sap_core`: terms, dates, map-based Coupa, neutral elapsed days) plus cash-discount extension (`fct_inv_sap_cd`: KPI funnel, leakage amount, primary cause). Legacy `fct_inv_sap` is a deprecated shim with no downstream refs.
 
 Grain: one row per sap_inv_key (posted vendor invoice, KR, vendor present).
 
-Sources: src_inv_sap; seed_payment_term_sap; int_attribution_policy_active; receipt_date from fct_inv_coupa when coupa_posting_ref matches.
+Sources (core): src_inv_sap; seed_payment_term_sap; map_inv_sap_coupa; fct_inv_coupa. Sources (CD): fct_inv_sap_core; int_attribution_policy_active.
 
-Transformation: payment-term join and discount deadline; structural entitlement and not-entitled reason; paid-in-period and KPI entitled; discount opportunity and taken; exclusion and leakage flags; policy-driven day counts and diagnostics; ordered leakage waterfall → primary_cause, primary_cause_group, lost_discount_amount.
+Transformation: core payment-term join and discount deadline; CD adds structural entitlement, paid-in-period, taken/excluded/leakage, policy-driven diagnostics, ordered leakage waterfall → primary_cause, primary_cause_group, lost_discount_amount.
 
-Consumed by: mart_cash_discount_kpi, mart_cash_discount_kpi_by_cause, fct_inv_timing_span, fct_inv_timing_overlay, fct_inv_timing_allocation, map_inv_sap_coupa (lineage/tests).
+Consumed by: marts and timing models ref `fct_inv_sap_cd`; span/overlay core paths ref `fct_inv_sap_core`; map_inv_sap_coupa (lineage/tests on core).
 
-Notable outputs: is_kpi_entitled, is_taken, is_excluded, is_leakage, primary_cause, lost_discount_amount, runway_at_handoff, processing_available_days.
+Notable outputs: is_kpi_entitled, is_taken, is_excluded, is_leakage, primary_cause, lost_discount_amount, runway_at_handoff, processing_available_days (on `_cd`).
 
 ---
 
@@ -328,7 +328,7 @@ Description: Calendar phase spans for process timing (how long each phase lasted
 
 Grain: sap_inv_key × phase_level × phase_code × span_seq.
 
-Sources: fct_inv_sap; fct_inv_coupa_changes (subprocess boundaries and events).
+Sources: fct_inv_sap_core; fct_inv_coupa_changes (subprocess boundaries and events).
 
 Transformation: ownership spans (pre_sap, payment); subprocess spans (intake, verification, approval, interface, payment); measured vs not measurable status; span start/end and span_days.
 
@@ -338,17 +338,17 @@ Notable outputs: phase_level, phase_code, span_days, span_status, span_start_dat
 
 ---
 
-#### fct_inv_timing_overlay
+#### fct_inv_timing_overlay_core / fct_inv_timing_overlay_cd
 
-Description: Labeled blocker intervals explaining time inside phases (holds, rework, blocks, post-deadline wait).
+Description: Labeled blocker intervals explaining time inside phases (holds, rework, blocks, post-deadline wait). Core = observed Coupa + SAP blocks; CD adds `payment_run_wait`. Legacy `fct_inv_timing_overlay` is a deprecated shim with no downstream refs.
 
 Grain: sap_inv_key × overlay_reason_code × interval_seq.
 
-Sources: int_inv_coupa_overlay_intervals; int_inv_sap_payment_block_intervals; derived payment_run_wait logic from fct_inv_sap; seed_timing_overlay_reason_map.
+Sources: int_inv_coupa_overlay_intervals; int_inv_sap_payment_block_intervals; CD layer adds payment_run_wait from fct_inv_sap_cd; seed_timing_overlay_reason_map.
 
 Transformation: union Coupa-derived and SAP-derived intervals; derive payment_run_wait where eligible; map reason codes and metadata.
 
-Consumed by: fct_inv_timing_overlay_span, fct_inv_timing_allocation.
+Consumed by: fct_inv_timing_overlay_span, fct_inv_timing_allocation (via span; tests target `_cd`).
 
 Notable outputs: interval_start_date, interval_end_date, interval_days, reason_group, source_system.
 
@@ -360,7 +360,7 @@ Description: Splits timing-type leakage euros across phases and timing buckets f
 
 Grain: sap_inv_key × phase_level × phase_code × bucket_code (only rows with priority_allocated_eur > 0).
 
-Sources: fct_inv_sap (timing primary causes only); fct_inv_timing_span; fct_inv_timing_overlay_span.
+Sources: fct_inv_sap_cd (timing primary causes only); fct_inv_timing_span; fct_inv_timing_overlay_span.
 
 Transformation: payment vs pre_posting regime from runway at handoff; phase euro split by clipped span weights; intake/interface delay buckets; verification/approval blocker buckets with gap and overlap scaling; payment block and payment_run_wait; cent residuals so euros reconcile to lost_discount_amount.
 
@@ -376,7 +376,7 @@ Description: Headline cash-discount KPIs for the reporting period.
 
 Grain: one row per reporting_period_start × reporting_period_end (vars).
 
-Sources: fct_inv_sap.
+Sources: fct_inv_sap_cd.
 
 Transformation: counts and sums for entitled, taken, excluded, leakage; opportunity, realized, excluded, and leakage EUR; leakage rate.
 
@@ -392,7 +392,7 @@ Description: Leakage broken down by primary cause (reconciles to headline mart).
 
 Grain: one row per reporting period × primary_cause.
 
-Sources: fct_inv_sap.
+Sources: fct_inv_sap_cd.
 
 Transformation: filter leakage rows; group by primary_cause (and group); sum counts and EUR.
 
@@ -408,7 +408,7 @@ Description: Portfolio view of timing leakage by phase and timing bucket with ac
 
 Grain: one row per reporting period × phase_level × phase_code × bucket_code.
 
-Sources: fct_inv_timing_allocation; fct_inv_sap (vendor, period context as needed).
+Sources: fct_inv_timing_allocation; fct_inv_sap_cd (vendor, period context as needed).
 
 Transformation: aggregate allocation euros and exposure days; cumulative share; ACT vs WATCH; owner_role for narrative.
 

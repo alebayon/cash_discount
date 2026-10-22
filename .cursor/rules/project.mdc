@@ -37,7 +37,7 @@ Read the decision log for the scope you are changing:
 
 **Tags:** `core` on shared models; `cash_discount` on CD product models. Select ancestors with `+tag:<name>` (e.g. `dbt build --select +tag:cash_discount`).
 
-**Spine:** `fct_inv_sap_core` → `fct_inv_sap_cd` (product extension). Legacy **`fct_inv_sap`** = shim to `fct_inv_sap_cd` until deprecated.
+**Spine:** `fct_inv_sap_core` → `fct_inv_sap_cd` (product extension). Legacy **`fct_inv_sap`** / **`fct_inv_timing_overlay`** = shims with no downstream refs; `assert_no_deprecated_model_dependencies` on `on-run-start` blocks new refs until shims are deleted.
 
 ## SQL style
 

@@ -10,7 +10,7 @@ select
     s.sap_entry_date,
     s.clearing_date,
     s.discount_deadline_date
-from {{ ref('fct_inv_timing_overlay') }} o
+from {{ ref('fct_inv_timing_overlay_cd') }} o
 inner join {{ ref('fct_inv_sap_cd') }} s
     on o.sap_inv_key = s.sap_inv_key
 where

@@ -2,6 +2,7 @@
 
 Public summary of durable design choices for this portfolio dbt project.  
 Narrative detail, term definitions, and model inventory: see [README.md](../README.md).  
+Shared AP core (splits, shims, package path): [ap_core/docs/core_decisions.md](../ap_core/docs/core_decisions.md).  
 A fuller internal decisions log is maintained locally and is not published.
 
 ---
@@ -19,7 +20,7 @@ A fuller internal decisions log is maintained locally and is not published.
 
 ### Invoice-centric KPIs
 
-Headline metrics live at **one row per SAP vendor invoice** (`fct_inv_sap`). Marts aggregate from that grain and from reporting-period vars (`reporting_period_start` / `reporting_period_end` in `dbt_project.yml`).
+Headline metrics live at **one row per SAP vendor invoice** (`fct_inv_sap_cd`; shared spine `fct_inv_sap_core`). Marts aggregate from that grain and from reporting-period vars (`reporting_period_start` / `reporting_period_end` in `dbt_project.yml`).
 
 ### SAP as system of record
 
@@ -48,7 +49,7 @@ All day counts use **calendar days** (warehouse `datediff` day semantics). No ho
 | Facts | `models/fct/` | Invoice fact, change streams, phase spans, overlays, timing allocation |
 | Marts | `models/mart/` | Period KPIs, cause breakdown, timing action views |
 
-**Authority model:** `fct_inv_sap` owns funnel, leakage flag, `primary_cause`, and `lost_discount_amount`. Timing allocation reads timing-type leakage only and does not change primary cause.
+**Authority model:** `fct_inv_sap_cd` owns funnel, leakage flag, `primary_cause`, and `lost_discount_amount` (built on shared `fct_inv_sap_core`). Timing allocation reads timing-type leakage only and does not change primary cause.
 
 ---
 
@@ -76,7 +77,7 @@ Stored in seed (e.g. `seed_attribution_policy`) with an active version row consu
 
 ## KPI funnel (before leakage causes)
 
-Applied on `fct_inv_sap` in order:
+Applied on `fct_inv_sap_cd` in order:
 
 1. **Vendor invoice** — document type vendor invoice (e.g. KR) with vendor present  
 2. **Paid in period** — cleared in selected reporting period; open items excluded  
@@ -123,7 +124,7 @@ Diagnostics (`terms_condition`, `intake_condition`, `handoff_condition`, etc.) a
 - **Ownership:** `pre_sap` (receipt → SAP entry), `payment` (SAP entry → clearing)  
 - **Subprocess (pre-SAP):** intake, verification, approval, interface — from Coupa change history; subprocess days reconcile to ownership pre-SAP time  
 
-### Overlays (`fct_inv_timing_overlay`)
+### Overlays (`fct_inv_timing_overlay_core` + `fct_inv_timing_overlay_cd`)
 
 Dated blocker intervals explain labeled delay inside phases. Sources:
 

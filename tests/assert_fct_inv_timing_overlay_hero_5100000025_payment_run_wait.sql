@@ -7,7 +7,7 @@ select
     o.interval_end_date,
     o.interval_days
 from {{ ref('fct_inv_sap_cd') }} s
-inner join {{ ref('fct_inv_timing_overlay') }} o
+inner join {{ ref('fct_inv_timing_overlay_cd') }} o
     on s.sap_inv_key = o.sap_inv_key
 where s.doc_number = '5100000025'
   and o.overlay_reason_code = 'payment_run_wait'
