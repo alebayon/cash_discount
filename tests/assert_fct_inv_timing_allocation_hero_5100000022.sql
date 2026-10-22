@@ -1,6 +1,6 @@
 -- Curriculum v2: pre_sap_execution_standard with verification on_hold
 select s.doc_number
-from {{ ref('fct_inv_sap') }} s
+from {{ ref('fct_inv_sap_cd') }} s
 where s.doc_number = '5100000022'
   and (
       s.is_leakage is distinct from true

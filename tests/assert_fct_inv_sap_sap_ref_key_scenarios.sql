@@ -2,7 +2,7 @@
 select
     doc_number,
     sap_ref_key
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number in ('5100000014', '5100000015', '5100000021')
   and sap_ref_key is not null
 
@@ -11,7 +11,7 @@ union all
 select
     doc_number,
     sap_ref_key
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number in (
     '5100000001', '5100000002', '5100000003', '5100000004',
     '5100000005', '5100000006', '5100000007', '5100000008', '5100000009',

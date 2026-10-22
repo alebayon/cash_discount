@@ -12,7 +12,7 @@ with expected_buckets as (
 ),
 actual_buckets as (
     select distinct primary_cause
-    from {{ ref('fct_inv_sap') }}
+    from {{ ref('fct_inv_sap_cd') }}
     where is_leakage
 )
 select e.primary_cause

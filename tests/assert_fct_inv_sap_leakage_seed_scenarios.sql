@@ -8,7 +8,7 @@ select
     is_still_feasible,
     requires_expedited_processing,
     is_timing_contributor
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number in ('5100000003', '5100000012', '5100000013')
   and (
       is_leakage is distinct from case doc_number

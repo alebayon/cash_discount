@@ -337,7 +337,7 @@ models:
   - name: fct_inv_coupa
     description: >
       Slim Coupa invoice fact. One row per in-scope invoice (document_type = Invoice).
-      No KPI funnel; period scoping lives on fct_inv_sap. Grain coupa_id.
+      No KPI funnel; period scoping lives on fct_inv_sap_cd. Grain coupa_id.
     columns:
       - name: coupa_id
         description: Coupa invoice system id.
@@ -609,55 +609,8 @@ models:
 
   - name: fct_inv_timing_overlay
     description: >
-      Blocker overlay intervals per invoice. Grain
-      (sap_inv_key, overlay_reason_code, interval_seq). Coupa on_hold, rework,
-      and inv_dispute from int_inv_coupa_overlay_intervals; SAP payment_block
-      from int_inv_sap_payment_block_intervals; payment_run_wait derived for
-      payment_execution rows with runway at handoff (D64/D75/D89).
-    columns:
-      - name: sap_inv_key
-        tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('fct_inv_sap')
-                field: sap_inv_key
-      - name: overlay_reason_code
-        tests:
-          - not_null
-      - name: interval_seq
-        tests:
-          - not_null
-      - name: interval_start_date
-        tests:
-          - not_null
-      - name: interval_end_date
-        tests:
-          - not_null
-      - name: interval_days
-        tests:
-          - not_null
-      - name: reason_group
-        tests:
-          - not_null
-      - name: source_system
-        tests:
-          - not_null
-      - name: source_change_id
-        description: Coupa or SAP change anchor for drill-through (D40/D60).
-        tests:
-          - relationships:
-              arguments:
-                to: ref('fct_inv_coupa_changes')
-                field: coupa_change_id
-              config:
-                where: "source_change_id is not null and source_system = 'coupa'"
-          - relationships:
-              arguments:
-                to: ref('fct_inv_sap_changes')
-                field: sap_change_id
-              config:
-                where: "source_change_id is not null and source_system = 'sap'"
+      DEPRECATED shim to fct_inv_timing_overlay_cd. Do not add schema tests here;
+      canonical model is fct_inv_timing_overlay_cd.
 
   - name: fct_inv_timing_overlay_span
     description: >
@@ -699,7 +652,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_sap')
+                to: ref('fct_inv_sap_cd')
                 field: sap_inv_key
       - name: phase_level
         tests:

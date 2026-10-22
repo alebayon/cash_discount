@@ -1,6 +1,6 @@
 -- 5100000019: payment_execution at available_days=10 (standard combined window)
 select doc_number
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000019'
   and (
       is_leakage is distinct from true

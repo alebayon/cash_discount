@@ -9,7 +9,7 @@ from (
         sum(case when is_excluded then 1 else 0 end) as excluded_true,
         sum(case when is_leakage then 1 else 0 end) as leakage_true,
         round(sum(case when is_leakage then lost_discount_amount else 0 end), 2) as leakage_amount_total
-    from {{ ref('fct_inv_sap') }}
+    from {{ ref('fct_inv_sap_cd') }}
 ) actual
 where row_count != 24
    or kpi_entitled != 16

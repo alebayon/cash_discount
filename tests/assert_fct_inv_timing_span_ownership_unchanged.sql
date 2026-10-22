@@ -27,7 +27,7 @@ actual as (
         f.doc_number,
         s.span_days
     from {{ ref('fct_inv_timing_span') }} s
-    inner join {{ ref('fct_inv_sap') }} f
+    inner join {{ ref('fct_inv_sap_cd') }} f
         on s.sap_inv_key = f.sap_inv_key
     where s.phase_level = 'ownership'
       and s.phase_code = 'pre_sap'

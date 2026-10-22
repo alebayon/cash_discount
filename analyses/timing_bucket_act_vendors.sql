@@ -28,7 +28,7 @@ vendor_bucket as (
         on b.phase_level = a.phase_level
         and b.phase_code = a.phase_code
         and b.bucket_code = a.bucket_code
-    inner join {{ ref('fct_inv_sap') }} s
+    inner join {{ ref('fct_inv_sap_cd') }} s
         on a.sap_inv_key = s.sap_inv_key
     group by
         b.reporting_period_start,

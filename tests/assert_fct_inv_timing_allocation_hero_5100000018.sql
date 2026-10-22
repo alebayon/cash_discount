@@ -1,6 +1,6 @@
 -- 5100000018: timing-group compressed — allocation reconciles to lost discount
 select s.doc_number
-from {{ ref('fct_inv_sap') }} s
+from {{ ref('fct_inv_sap_cd') }} s
 where s.doc_number = '5100000018'
   and (
       s.is_leakage is distinct from true

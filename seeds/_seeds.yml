@@ -9,7 +9,7 @@ seeds:
   - name: seed_attribution_policy
     description: >
       Versioned leakage attribution policy parameters (D83, D90).
-      Active row drives int_attribution_policy_active and fct_inv_sap V6 fields.
+      Active row drives int_attribution_policy_active and fct_inv_sap_cd V6 fields.
     columns:
       - name: attribution_policy_version
         description: Policy label echoed on invoice fact (e.g. v6).

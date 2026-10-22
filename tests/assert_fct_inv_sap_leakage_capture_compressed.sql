@@ -1,6 +1,6 @@
 -- 5100000020: Rule 1 capture wins despite compressed intake (available_days=7)
 select doc_number
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000020'
   and (
       is_leakage is distinct from true

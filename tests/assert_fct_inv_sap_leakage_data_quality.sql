@@ -1,6 +1,6 @@
 -- 5100000021: Rule 0 data_quality_error (SAP-only, receipt_date null)
 select doc_number
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000021'
   and (
       is_leakage is distinct from true

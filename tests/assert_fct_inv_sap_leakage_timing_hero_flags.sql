@@ -1,6 +1,6 @@
 -- 5100000003: payment_execution hero (V6)
 select doc_number
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000003'
   and (
       is_leakage is distinct from true

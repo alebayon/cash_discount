@@ -18,7 +18,7 @@ reconciled as (
     from {{ ref('fct_inv_timing_span') }} s
     inner join both_measured b
         on s.sap_inv_key = b.sap_inv_key
-    inner join {{ ref('fct_inv_sap') }} f
+    inner join {{ ref('fct_inv_sap_cd') }} f
         on s.sap_inv_key = f.sap_inv_key
     where s.phase_level = 'ownership'
       and s.span_status = 'measured'

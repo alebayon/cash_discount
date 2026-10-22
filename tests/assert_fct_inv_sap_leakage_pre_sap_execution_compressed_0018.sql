@@ -1,6 +1,6 @@
 -- 5100000018: V6 Rule 4 pre_sap_execution_compressed (processing_available_days=4, runway<3)
 select doc_number
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000018'
   and (
       is_leakage is distinct from true

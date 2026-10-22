@@ -1,6 +1,6 @@
 -- 5100000016: V6 Rule 2 structural_terms_vs_capability (Z205, discount_days=5)
 select doc_number
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000016'
   and (
       is_leakage is distinct from true

@@ -1,7 +1,7 @@
 -- D41/D35: blocked coverage cannot exceed phase span_days on curriculum BELNRs
 with curriculum as (
     select sap_inv_key
-    from {{ ref('fct_inv_sap') }}
+    from {{ ref('fct_inv_sap_cd') }}
     where doc_number in (
         '5100000003',
         '5100000008',

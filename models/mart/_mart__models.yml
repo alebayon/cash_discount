@@ -4,7 +4,7 @@ models:
   - name: mart_cash_discount_kpi
     description: >
       SAP cash-discount hero KPIs for the configured reporting period.
-      One aggregate row sourced from fct_inv_sap funnel flags.
+      One aggregate row sourced from fct_inv_sap_cd funnel flags.
     columns:
       - name: reporting_period_start
         tests: [not_null]

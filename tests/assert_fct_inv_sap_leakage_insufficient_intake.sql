@@ -1,6 +1,6 @@
 -- 5100000017: V6 Rule 3 structural_insufficient_time_at_intake (processing_available_days=0)
 select doc_number
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000017'
   and (
       is_leakage is distinct from true

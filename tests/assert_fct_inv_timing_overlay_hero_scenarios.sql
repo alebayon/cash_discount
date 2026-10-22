@@ -3,7 +3,7 @@ with overlay_counts as (
     select
         s.doc_number,
         count(o.sap_inv_key) as overlay_row_count
-    from {{ ref('fct_inv_sap') }} s
+    from {{ ref('fct_inv_sap_cd') }} s
     left join {{ ref('fct_inv_timing_overlay') }} o
         on s.sap_inv_key = o.sap_inv_key
     where s.doc_number in (
@@ -49,7 +49,7 @@ hero_rows as (
         o.interval_end_date,
         o.interval_days,
         o.source_change_id
-    from {{ ref('fct_inv_sap') }} s
+    from {{ ref('fct_inv_sap_cd') }} s
     inner join {{ ref('fct_inv_timing_overlay') }} o
         on s.sap_inv_key = o.sap_inv_key
     where s.doc_number in (
@@ -94,7 +94,7 @@ detail_failures as (
 ownership_payment_failures as (
     select
         s.doc_number
-    from {{ ref('fct_inv_sap') }} s
+    from {{ ref('fct_inv_sap_cd') }} s
     left join {{ ref('fct_inv_timing_overlay_span') }} b
         on s.sap_inv_key = b.sap_inv_key
         and b.overlay_reason_code = 'payment_run_wait'

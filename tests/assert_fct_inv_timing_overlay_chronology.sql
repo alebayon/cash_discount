@@ -11,7 +11,7 @@ select
     s.clearing_date,
     s.discount_deadline_date
 from {{ ref('fct_inv_timing_overlay') }} o
-inner join {{ ref('fct_inv_sap') }} s
+inner join {{ ref('fct_inv_sap_cd') }} s
     on o.sap_inv_key = s.sap_inv_key
 where
     o.interval_start_date >= o.interval_end_date

@@ -288,4 +288,4 @@ Update row counts after `dbt build`.
 
 Last updated: 2026-10-22
 
-Invoice split: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` shim (24 rows). Timing overlay split: `fct_inv_timing_overlay_core` (7) → `fct_inv_timing_overlay_cd` (10) → `fct_inv_timing_overlay` shim. Map on `src_inv_sap`. Full `dbt build` green. Next: CD/WCO arbitration seed + model; optional ref hygiene on timing span / map FK.
+Invoice split: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` shim (24 rows). Timing overlay: `_core` (7) → `_cd` (10) → shim. Ref hygiene done (YAML FKs, tests on `_cd`, map orphans on `_core`). Next: CD/WCO arbitration seed + model.

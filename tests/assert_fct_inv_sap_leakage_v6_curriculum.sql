@@ -1,6 +1,6 @@
 -- D90 expected primary_cause on curriculum leakage rows (before compressed hero)
 select doc_number, primary_cause
-from {{ ref('fct_inv_sap') }}
+from {{ ref('fct_inv_sap_cd') }}
 where doc_number in (
     '5100000003', '5100000012', '5100000016', '5100000017', '5100000018',
     '5100000019', '5100000020', '5100000021', '5100000022', '5100000023',

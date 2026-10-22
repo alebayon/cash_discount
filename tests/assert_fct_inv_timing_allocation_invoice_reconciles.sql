@@ -11,7 +11,7 @@ select
     s.lost_discount_amount,
     p.allocated_eur
 from per_invoice p
-inner join {{ ref('fct_inv_sap') }} s
+inner join {{ ref('fct_inv_sap_cd') }} s
     on p.sap_inv_key = s.sap_inv_key
 where s.is_leakage
   and s.primary_cause_group = 'timing'
