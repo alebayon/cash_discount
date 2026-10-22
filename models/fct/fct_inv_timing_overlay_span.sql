@@ -35,7 +35,7 @@ overlaps as (
         o.source_change_id,
         greatest(o.interval_start_date, s.span_start_date) as overlap_start_date,
         least(o.interval_end_date, s.span_end_date) as overlap_end_date
-    from {{ ref('fct_inv_timing_overlay') }} o
+    from {{ ref('fct_inv_timing_overlay_cd') }} o
     inner join measured_spans s
         on o.sap_inv_key = s.sap_inv_key
         and o.interval_start_date < s.span_end_date

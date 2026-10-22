@@ -2,11 +2,11 @@ with invoices as (
 
     select
         sap_inv_key,
-        sap_ref_key,
+        coupa_posting_ref,
         receipt_date,
         sap_entry_date,
         clearing_date
-    from {{ ref('fct_inv_sap') }}
+    from {{ ref('fct_inv_sap_core') }}
 
 ),
 
@@ -44,7 +44,7 @@ ownership_span_base as (
         case
             when pd.phase_code = 'pre_sap' then
                 case
-                    when inv.sap_ref_key is null then 'not_applicable'
+                    when inv.coupa_posting_ref is null then 'not_applicable'
                     when inv.receipt_date is null then 'not_measurable'
                     else 'measured'
                 end
@@ -55,12 +55,12 @@ ownership_span_base as (
                 end
         end as span_status,
         case
-            when pd.phase_code = 'pre_sap' and inv.sap_ref_key is null then null
+            when pd.phase_code = 'pre_sap' and inv.coupa_posting_ref is null then null
             when pd.phase_code = 'pre_sap' then inv.receipt_date
             else inv.sap_entry_date
         end as span_start_date,
         case
-            when pd.phase_code = 'pre_sap' and inv.sap_ref_key is null then null
+            when pd.phase_code = 'pre_sap' and inv.coupa_posting_ref is null then null
             when pd.phase_code = 'pre_sap' then inv.sap_entry_date
             when inv.clearing_date is null then null
             else inv.clearing_date
@@ -112,7 +112,7 @@ boundary_events as (
         ) as event_ord
     from invoices inv
     inner join {{ ref('fct_inv_coupa_changes') }} ch
-        on inv.sap_ref_key = ch.coupa_id
+        on inv.coupa_posting_ref = ch.coupa_id
     where ch.role_kind = 'boundary'
 
 ),
@@ -335,7 +335,7 @@ sap_only_subprocess_spans as (
             'coupa.approval_end',
             'sap.cpudt'
     ) pd
-    where inv.sap_ref_key is null
+    where inv.coupa_posting_ref is null
 
 ),
 

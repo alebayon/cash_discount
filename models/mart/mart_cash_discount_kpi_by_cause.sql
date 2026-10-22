@@ -7,7 +7,7 @@ with leakage as (
         primary_cause,
         primary_cause_group,
         lost_discount_amount
-    from {{ ref('fct_inv_sap') }}
+    from {{ ref('fct_inv_sap_cd') }}
     where is_leakage
 
 ),

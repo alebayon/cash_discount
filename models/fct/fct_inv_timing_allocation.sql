@@ -18,7 +18,7 @@ with timing_invoices as (
             else 'pre_posting'
         end as allocation_regime,
         datediff('day', discount_deadline_date, clearing_date) as post_deadline_days
-    from {{ ref('fct_inv_sap') }}
+    from {{ ref('fct_inv_sap_cd') }}
     -- Period: is_leakage already implies is_kpi_entitled (clearing in reporting period vars).
     -- D89: Version 6 timing-group primary causes only.
     where is_leakage

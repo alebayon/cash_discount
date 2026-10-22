@@ -12,7 +12,7 @@ with invoices as (
         discount_opportunity_amount,
         discount_taken_amount,
         lost_discount_amount
-    from {{ ref('fct_inv_sap') }}
+    from {{ ref('fct_inv_sap_cd') }}
 
 ),
 
