@@ -1,7 +1,7 @@
--- CD/WCO arbitration v1 curriculum (Z205 acceleration hero)
+-- 5100000026: Z205 acceleration > 20 days; arbitration-out, not KPI leakage
 select doc_number, is_cd_eligible, not_cd_eligible_reason, is_kpi_entitled, is_leakage
 from {{ ref('fct_inv_sap_cd') }}
-where doc_number = '5100000016'
+where doc_number = '5100000026'
   and (
       is_cd_eligible is distinct from false
       or not_cd_eligible_reason is distinct from 'cash_acceleration_exceeds_maximum'
@@ -11,12 +11,13 @@ where doc_number = '5100000016'
 
 union all
 
--- Structural fail: arbitration reason must stay null (5100000015 no baseline)
+-- 5100000015: baseline OK, potential discount below €10 minimum
 select doc_number, is_cd_eligible, not_cd_eligible_reason, is_kpi_entitled, is_leakage
 from {{ ref('fct_inv_sap_cd') }}
 where doc_number = '5100000015'
   and (
-      not_cd_eligible_reason is not null
-      or is_cd_eligible is not null
+      is_cd_eligible is distinct from false
+      or not_cd_eligible_reason is distinct from 'potential_discount_below_minimum'
       or is_kpi_entitled is distinct from false
+      or is_leakage is not null
   )
