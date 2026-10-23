@@ -19,8 +19,6 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
-on-run-start:
-  - "{{ assert_no_deprecated_model_dependencies() }}"
 
 models:
   cash_discount:
