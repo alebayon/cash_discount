@@ -135,13 +135,15 @@ One of the main goals of this use case is to build a decision tree that assigns 
 
 0. Overall dataset population: all documents in an Accounts Payable domain.
 1. Vendor Invoices: first filter is only invoices from a registered vendor (document type = 'KR' and vendor id not null).
-2. Paid in period: Open invoices are out of scope for this analysis and the period is the selection of the user (for showcase: year 2024).
-3. Entitled (KPI Universe): This is the denominator of the KPI based on rates (%). Entitled means it has cash discount potential (both invoice value and discount percentage) and there is a time window for payment (baseline date and discount terms). As soon as one of the required fields is missing, there is a not-entitled reason recorded and this invoice falls outside KPI scope.
-4. Realized vs Not taken: After passing the initial scope filters (Document must be a vendor invoice paid in period and cash discount entitled), the entire KPI population is split. First Realized, which in this showcase means full cash discount captured; partial capture and certain rounding error margins are out of scope for simplicity. Realized rows received the full eligible discount, and the non taken have a zero amount captured.
+2. Structural entitlement: Cash discount potential (baseline, terms, deadline, positive invoice base). Missing fields set `not_entitled_reason` (outside structural universe).
+3. CD/WCO arbitration: Treasury policy (input seed for arbitration) — minimum potential discount EUR and max cash-acceleration days. When structural OK, "is cd eligible" false sets "not eligible reason" (e.g. below €10 or excessive acceleration); not merged into structural reasons.
+4. Paid in period: Open invoices and clears outside the reporting window are out of scope (showcase: calendar year 2024).
+5. KPI entitled: Vendor invoice AND structural OK AND CD eligible AND paid in period (kpi entitled).
+6. Realized vs Not taken: After entering the KPI universe, split taken (full discount captured) vs not taken (zero captured at clearing; partial capture out of scope).
 
 ### Excluded and leakage
 
-5. Excluded vs Leakage: From the not taken there is a split into leakage and excluded (justified non-take). There is a custom flag (do-not-take-skonto at clearing) which can be activated in special cases and the lost cash discount analysis does not deep-dive into the reasons. It will be still a missed discount opportunity, but not classified as leakage.
+7. Excluded vs Leakage: From the not taken there is a split into leakage and excluded (justified non-take). There is a custom flag (do-not-take-skonto at clearing) which can be activated in special cases and the lost cash discount analysis does not deep-dive into the reasons. It will be still a missed discount opportunity, but not classified as leakage.
 
 ### Leakage waterfall
 
@@ -308,17 +310,17 @@ The model was built in layers. Each layer added capability without rewriting ear
 
 #### fct_inv_sap_core / fct_inv_sap_cd
 
-Description: Shared SAP invoice spine (`fct_inv_sap_core`: terms, dates, map-based Coupa, neutral elapsed days) plus cash-discount extension (`fct_inv_sap_cd`: KPI funnel, leakage amount, primary cause). Legacy `fct_inv_sap` is a deprecated shim with no downstream refs.
+Description: Shared SAP invoice spine (`fct_inv_sap_core`: terms, dates, map-based Coupa, neutral elapsed days) plus cash-discount extension (`fct_inv_sap_cd`: structural entitlement, CD/WCO arbitration join, KPI funnel, leakage, V6 `primary_cause`). Core arbitration: `fct_inv_cd_wco_arbitration`.
 
 Grain: one row per sap_inv_key (posted vendor invoice, KR, vendor present).
 
 Sources (core): src_inv_sap; seed_payment_term_sap; map_inv_sap_coupa; fct_inv_coupa. Sources (CD): fct_inv_sap_core; int_attribution_policy_active.
 
-Transformation: core payment-term join and discount deadline; CD adds structural entitlement, paid-in-period, taken/excluded/leakage, policy-driven diagnostics, ordered leakage waterfall → primary_cause, primary_cause_group, lost_discount_amount.
+Transformation: core payment-term join and discount deadline; CD adds structural entitlement, arbitration gates (`is_cd_eligible`), paid-in-period, taken/excluded/leakage, V6 attribution policy diagnostics, ordered leakage waterfall → primary_cause, primary_cause_group, lost_discount_amount.
 
 Consumed by: marts and timing models ref `fct_inv_sap_cd`; span/overlay core paths ref `fct_inv_sap_core`; map_inv_sap_coupa (lineage/tests on core).
 
-Notable outputs: is_kpi_entitled, is_taken, is_excluded, is_leakage, primary_cause, lost_discount_amount, runway_at_handoff, processing_available_days (on `_cd`).
+Notable outputs: not_entitled_reason, is_cd_eligible, not_cd_eligible_reason, is_kpi_entitled, is_taken, is_excluded, is_leakage, primary_cause, lost_discount_amount, runway_at_handoff, processing_available_days (on `_cd`).
 
 ---
 

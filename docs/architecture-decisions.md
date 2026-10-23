@@ -2,7 +2,7 @@
 
 Public summary of durable design choices for this portfolio dbt project.  
 Narrative detail, term definitions, and model inventory: see [README.md](../README.md).  
-Shared AP core (splits, shims, package path): [ap_core/docs/core_decisions.md](../ap_core/docs/core_decisions.md).  
+Shared AP core (splits, arbitration, package path): [ap_core/docs/core_decisions.md](../ap_core/docs/core_decisions.md).  
 A fuller internal decisions log is maintained locally and is not published.
 
 ---
@@ -28,7 +28,7 @@ Entitlement, taken vs not taken, clearing in period, and leakage amounts use SAP
 
 ### Deterministic, testable business rules
 
-Policy thresholds and mappings live in **versioned seeds** (e.g. attribution policy). SQL references those seeds; singular tests guard a **labeled curriculum** of example invoices.
+Policy thresholds and mappings live in **versioned seeds** (attribution policy, payment terms, **CD/WCO arbitration**). SQL references those seeds; singular tests guard a **labeled curriculum** of example invoices.
 
 ### Calendar days
 
@@ -75,17 +75,24 @@ Stored in seed (e.g. `seed_attribution_policy`) with an active version row consu
 
 ---
 
+## CD/WCO arbitration (v1, core)
+
+`seed_cd_wco_arbitration_policy` + `fct_inv_cd_wco_arbitration` (grain `sap_inv_key`): minimum potential discount EUR, maximum cash-acceleration days (discount deadline → net due). `fct_inv_sap_cd` exposes `is_cd_eligible`, `not_cd_eligible_reason`, `payment_strategy`. OTP does not use arbitration.
+
 ## KPI funnel (before leakage causes)
 
-Applied on `fct_inv_sap_cd` in order:
+**SQL evaluation order** on `fct_inv_sap_cd` (diagrams may reorder for readability):
 
-1. **Vendor invoice** — document type vendor invoice (e.g. KR) with vendor present  
-2. **Paid in period** — cleared in selected reporting period; open items excluded  
-3. **KPI entitled** — discount potential and deadline fields present; else `not_entitled_reason`  
-4. **Taken vs not taken** — full discount captured at clearing vs zero captured (partial capture out of scope)  
-5. **Excluded vs leakage** (not taken only) — see exclusion rule below  
+1. **Vendor invoice** — KR with vendor present (`fct_inv_sap_core` scope)  
+2. **Structural entitlement** — `not_entitled_reason` null (baseline, terms, deadline, positive base)  
+3. **CD program eligibility** — `is_cd_eligible` from arbitration (when structural OK)  
+4. **Paid in period** — cleared within reporting vars → **`is_kpi_entitled`** = structural ∧ CD eligible ∧ in period  
+5. **Taken vs not taken** — full discount captured at clearing vs zero (partial capture out of scope)  
+6. **Excluded vs leakage** (not taken only) — see exclusion rule below  
 
-**Leakage:** entitled, not taken, not excluded.
+**Leakage:** KPI entitled, not taken, not excluded.
+
+**Curriculum heroes:** `5100000015` (below-minimum €, not KPI ENT); `5100000016` (Z525, structural_terms leakage); `5100000026` (Z205, acceleration-out, not KPI ENT).
 
 ---
 

@@ -97,7 +97,7 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 
 0. Document contract (this file)
 1. Split `fct_inv_sap_core` + `fct_inv_sap_cd` inside `cash_discount`; keep curriculum green — **done** (shims removed 2026-10-23)
-2. Arbitration curriculum + shared policy model — **done** (2026-10-23); curriculum gap: CD-eligible `structural_terms_vs_capability` hero (see decision below)
+2. Arbitration curriculum + shared policy model — **done** (2026-10-23); labeled heroes 5100000015 / 5100000016 / 5100000026 (see 2026-10-23 CD KPI funnel)
 3. Extract `ap_core` package v0.1.0
 4. Pin package from `cash_discount`; remove duplicated core
 5. CI + semver contracts
@@ -110,8 +110,6 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 - Production source and definition for `receipt_date` (synthetic v0 uses Coupa `created_at` on mapped invoices).
 - **Terms at clearing / effective-dated payment terms** — rebuilds can change `discount_deadline_date` and `net_due_date` if terms are read as current state; document limitation for v0; design history before production-grade OTP/CD audit claims.
 - Authoritative date for arbitration policy version if `document_date` is replaced later.
-- **Curriculum:** CD-eligible invoice(s) for `structural_terms_vs_capability` leakage and additional arbitration edge cases (below-minimum €, in-period paid).
-
 ---
 
 ## Decisions
@@ -251,11 +249,19 @@ Policy version selected by effective date; v1 evaluation date = `document_date`.
 
 **KPI ENT:** `is_kpi_entitled` = structural OK ∧ `coalesce(is_cd_eligible, false)` ∧ cleared in reporting period. `is_excluded` (do-not-take at clearing) unchanged — downstream of ENT.
 
-**Curriculum (synthetic v0):** Hero `5100000016` (Z205) is an **arbitration-out** case (`cash_acceleration_exceeds_maximum`), not leakage. V6 bucket `structural_terms_vs_capability` has **no** leakage row until a **CD-eligible** terms hero is added (e.g. short discount days with acceleration ≤ 20). Mart by-cause row count **6** until that hero exists.
+**Curriculum (synthetic v0, 2024 reporting vars):**
+
+| BELNR | Role |
+|-------|------|
+| `5100000015` | Structural OK (`ZFBDT` set); `potential_discount_below_minimum` → not KPI ENT |
+| `5100000016` | **Z525** (2/5 net 25); CD-eligible; V6 `structural_terms_vs_capability` leakage (€20) |
+| `5100000026` | **Z205**; `cash_acceleration_exceeds_maximum` → not KPI ENT (SAP-only arbitration hero) |
+
+**Payment terms:** `Z525` in `seed_payment_term_sap` — 5 discount days, 25 net days (acceleration 20 days, passes arbitration).
 
 **Why:** Separates feasibility from program scope; shared arbitration fact supports WCO without redefining structural entitlement.
 
-**Impact:** Funnel/mart singular tests updated (kpi_entitled 15, leakage 11, leakage_eur 170.20 for 2024 vars). Future: add labeled seeds + restore full V6 cause coverage.
+**Impact:** `fct_inv_sap_cd` / marts: **25** KR rows; KPI ENT **16**, leakage **12**, leakage EUR **190.20**, opportunity **355.21**; mart by-cause **7** rows. `fct_inv_timing_span` ownership **50** / **43** measured; subprocess **129**.
 
 ---
 
@@ -298,18 +304,18 @@ Update row counts after `dbt build`.
 | `fct_inv_coupa` | fct | coupa invoice | existing | |
 | `fct_inv_coupa_changes` | fct | change event | existing | |
 | `fct_inv_sap_changes` | fct | change event | existing | |
-| `seed_payment_term_sap` | seed | ZTERM | existing | Includes `net_days` |
+| `seed_payment_term_sap` | seed | ZTERM | existing | Z210, Z205, Z525, N030; includes `net_days` |
 | `seed_cd_wco_arbitration_policy` | seed | policy version | existing | v1; effective on `document_date`; tag `core` |
-| `fct_inv_sap_core` | fct | sap_inv_key | existing | 24 rows; tag `core`; public contract v0 |
-| `fct_inv_timing_span` | fct | span grain | existing | Core; refs `fct_inv_sap_core` |
+| `fct_inv_sap_core` | fct | sap_inv_key | existing | 25 KR rows; tag `core`; public contract v0 |
+| `fct_inv_timing_span` | fct | span grain | existing | Core; refs `fct_inv_sap_core`; 25 inv.; ownership 50 (43 measured); subprocess 129 |
 | `int_inv_coupa_overlay_intervals` | int | interval | existing | Core |
 | `int_inv_sap_payment_block_intervals` | int | interval | existing | Core |
 | `fct_inv_timing_overlay_core` | fct | overlay interval | existing | 7 rows; observed Coupa + SAP blocks; tag `core` |
 | `fct_inv_timing_overlay_cd` | fct (CD) | overlay interval | existing | 10 rows; canonical CD overlay; `_core` ∪ `payment_run_wait`; tag `cash_discount` |
 | `fct_inv_timing_overlay_span` | fct | overlap | existing | CD; refs `fct_inv_timing_overlay_cd` + `fct_inv_timing_span` |
 | `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | Optional: span on `_core` only |
-| `fct_inv_cd_wco_arbitration` | fct | sap_inv_key | existing | 24 rows; tag `core`; gates + `payment_strategy`; WCO/CD consume |
-| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; extends core + arbitration; ENT includes `is_cd_eligible`; V6 leakage |
+| `fct_inv_cd_wco_arbitration` | fct | sap_inv_key | existing | 25 rows; tag `core`; gates + `payment_strategy`; WCO/CD consume |
+| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 25 rows; extends core + arbitration; ENT includes `is_cd_eligible`; V6 leakage |
 
 ---
 
@@ -330,4 +336,4 @@ Update row counts after `dbt build`.
 
 Last updated: 2026-10-23
 
-Invoice spine: `fct_inv_sap_core` → `fct_inv_cd_wco_arbitration` (join) → `fct_inv_sap_cd` (24 rows). Timing overlay: `_core` (7) → `_cd` (10). Shims removed. CD/WCO arbitration v1 live; `is_kpi_entitled` requires `is_cd_eligible`. Curriculum: `5100000016` = arbitration hero; **todo** CD-eligible `structural_terms_vs_capability` leakage hero (+ optional further arbitration cases). **Next:** `ap_core` package v0.1.0 extract; dim inactive vendors.
+Invoice spine: `fct_inv_sap_core` → `fct_inv_cd_wco_arbitration` → `fct_inv_sap_cd` (**25** KR rows). Timing overlay: `_core` (7) → `_cd` (10). Arbitration v1 + curriculum heroes **0015** (below €10), **0016** (Z525 structural_terms leakage), **0026** (Z205 acceleration-out). KPI funnel (2024 vars): ENT 16, leakage 12, €190.20. **Next:** `ap_core` package v0.1.0 extract; dim inactive vendors; optional more arbitration/limit edge cases.
