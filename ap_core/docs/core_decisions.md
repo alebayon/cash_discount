@@ -96,7 +96,7 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 ### Implementation sequence (reference)
 
 0. Document contract (this file)
-1. Split `fct_inv_sap_core` + `fct_inv_sap_cd` inside `cash_discount`; keep curriculum green
+1. Split `fct_inv_sap_core` + `fct_inv_sap_cd` inside `cash_discount`; keep curriculum green — **done** (shims removed 2026-10-23)
 2. Arbitration curriculum + shared policy model
 3. Extract `ap_core` package v0.1.0
 4. Pin package from `cash_discount`; remove duplicated core
@@ -136,13 +136,13 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 
 **Future products:** same pattern — `fct_inv_sap_otp`, `fct_inv_sap_wco` only where they extend `fct_inv_sap_core`; marts and secondary facts in those repos without `_otp` / `_wco` unless useful for clarity.
 
-**Legacy shims:** unsuffixed deprecated models (e.g. `fct_inv_sap` → `ref('fct_inv_sap_cd')`) until deleted; no downstream `ref()` to shims — enforced by `assert_no_deprecated_model_dependencies` on `on-run-start`.
+**No unsuffixed alias models:** use explicit spine pairs (`*_core` / `*_cd` on the same stem). Temporary pass-through shims are discouraged; if needed during a migration, remove them once refs and tests point at canonical models (see 2026-10-23).
 
 **Lineage:** “Extends core” vs “CD-only” is **not** encoded with a second naming flag (e.g. double suffix). Use paired names (`*_core` / `*_cd` on the same stem), `ref()` lineage, and model inventory.
 
 **Why:** Cross-repo contracts stay explicit; in-repo-only models stay short; multi-repo layout replaces folder scanning for marts and ancillary facts.
 
-**Impact:** Timing overlay split uses `fct_inv_timing_overlay_core` + `fct_inv_timing_overlay_cd`; rename and YAML when implemented. Invoice split already uses `fct_inv_sap_core` / `fct_inv_sap_cd`.
+**Impact:** Invoice and timing overlay splits are implemented: `fct_inv_sap_core` / `fct_inv_sap_cd`, `fct_inv_timing_overlay_core` / `fct_inv_timing_overlay_cd`.
 
 ### 2026-10-22 — Deprecated shim dependency guard [CONVENTION]
 
@@ -152,7 +152,19 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 
 **Why:** Makes shim removal a safe delete of two SQL files once CI is green; prevents new refs from re-coupling the DAG.
 
-**Impact:** `macros/assert_no_deprecated_model_dependencies.sql`; extend the deprecated model name list when adding new shims; remove the macro hook when all shims are gone.
+**Impact:** `macros/assert_no_deprecated_model_dependencies.sql` and `on-run-start` hook (temporary).
+
+**Status (2026-10-23):** Completed. Shims `fct_inv_sap` and `fct_inv_timing_overlay` deleted; macro and hook removed after green `dbt build`. Historical record only — do not reintroduce without a new dated decision.
+
+### 2026-10-23 — Legacy shim models removed [CONVENTION]
+
+**Context:** Migration from monolithic `fct_inv_sap` / `fct_inv_timing_overlay` to spine pairs finished; compile-time guard (2026-10-22) confirmed zero downstream refs.
+
+**Decision:** Delete deprecated pass-through models `fct_inv_sap` and `fct_inv_timing_overlay`, their YAML stubs, and `assert_no_deprecated_model_dependencies`. Canonical models are `fct_inv_sap_cd` and `fct_inv_timing_overlay_cd` only.
+
+**Why:** Remote repo is treated as production-ready; no alias layer in the DAG reduces confusion before `ap_core` package extract.
+
+**Impact:** No `ref('fct_inv_sap')` or `ref('fct_inv_timing_overlay')` in the project. Future temporary aliases require explicit inventory + removal plan.
 
 ### 2026-10-20 — ap_core scope and product boundaries [ARCHITECTURE]
 
@@ -243,11 +255,10 @@ Policy version selected by effective date; v1 evaluation date = `document_date`.
 - Shared spine: `fct_inv_sap_core`
 - Cash discount extension: `fct_inv_sap_cd` (dbt tag remains `cash_discount`)
 - Future: `fct_inv_sap_otp`, `fct_inv_sap_wco`
-- Legacy compatibility: `fct_inv_sap` is a deprecated shim to `fct_inv_sap_cd` until removed
 
 **Rejected:** `fct_inv_cash_discount` as the long-term model name (product code `_cd` aligns with `_core`).
 
-**Impact:** Rename `fct_inv_cash_discount.sql` → `fct_inv_sap_cd.sql` and update refs; YAML and tests follow.
+**Impact:** `fct_inv_sap_cd` is the CD invoice fact; unsuffixed `fct_inv_sap` removed (2026-10-23).
 
 ---
 
@@ -271,14 +282,11 @@ Update row counts after `dbt build`.
 | `int_inv_coupa_overlay_intervals` | int | interval | existing | Core |
 | `int_inv_sap_payment_block_intervals` | int | interval | existing | Core |
 | `fct_inv_timing_overlay_core` | fct | overlay interval | existing | 7 rows; observed Coupa + SAP blocks; tag `core` |
-| `fct_inv_timing_overlay_cd` | fct (CD) | overlay interval | existing | 10 rows; `_core` ∪ `payment_run_wait`; tag `cash_discount` |
-| `fct_inv_timing_overlay` | fct (CD) | overlay interval | shim | Deprecated `select *` from `fct_inv_timing_overlay_cd`; no downstream refs |
+| `fct_inv_timing_overlay_cd` | fct (CD) | overlay interval | existing | 10 rows; canonical CD overlay; `_core` ∪ `payment_run_wait`; tag `cash_discount` |
 | `fct_inv_timing_overlay_span` | fct | overlap | existing | CD; refs `fct_inv_timing_overlay_cd` + `fct_inv_timing_span` |
 | `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | Optional: span on `_core` only |
 | `int_*` / `fct_*` arbitration | core | sap_inv_key | planned | Name TBD |
-| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; tag `cash_discount`; extends `fct_inv_sap_core` |
-| `fct_inv_sap` | fct (CD) | sap_inv_key | shim | Deprecated `select *` from `fct_inv_sap_cd`; no downstream refs (see compile guard) |
-| `assert_no_deprecated_model_dependencies` | macro | — | existing | `on-run-start`; fails if any node refs a shim |
+| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; canonical CD invoice fact; tag `cash_discount`; extends `fct_inv_sap_core` |
 
 ---
 
@@ -291,12 +299,12 @@ Update row counts after `dbt build`.
 - **Handoff:** Proposed changes to this file = one full copy-paste block per dated entry. Proposed SQL/YAML/seeds = complete file contents (see `.cursor/rules/project.mdc`).
 - **Model inventory:** Update the table when adding or completing a core model.
 - **Versioning (post-extract):** Semantic versioning for `ap_core`; products pin releases in `packages.yml`.
-- **Naming (ap_core vs product):** `_core` on published spine facts that pair with product extensions; other core models unsuffixed. `_cd` (or `_otp`, `_wco`) only on models that `ref()` those core spines at the same grain—not on marts or CD-only facts that have no ap_core sibling. Legacy shims unsuffixed, deprecated. See decision 2026-10-21 — Model naming.
+- **Naming (ap_core vs product):** `_core` on published spine facts that pair with product extensions; other core models unsuffixed. `_cd` (or `_otp`, `_wco`) only on models that `ref()` those core spines at the same grain—not on marts or CD-only facts that have no ap_core sibling. No unsuffixed alias models. See decisions 2026-10-21 and 2026-10-23.
 
 ---
 
 ## Chat handoff notes
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 
-Invoice split: `fct_inv_sap_core` → `fct_inv_sap_cd` → `fct_inv_sap` shim (24 rows). Timing overlay: `_core` (7) → `_cd` (10) → shim. All models/tests/analyses ref `_core` / `_cd` only; `assert_no_deprecated_model_dependencies` on `on-run-start` blocks new shim refs. Safe to delete shim SQL when ready. Next: CD/WCO arbitration seed + model.
+Invoice spine: `fct_inv_sap_core` → `fct_inv_sap_cd` (24 rows). Timing overlay: `fct_inv_timing_overlay_core` (7) → `fct_inv_timing_overlay_cd` (10). Legacy shims and compile guard removed; curriculum refs canonical models only. **Next:** CD/WCO arbitration seed + shared model; wire into `fct_inv_sap_cd`.
