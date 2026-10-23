@@ -35,6 +35,38 @@ seeds:
           - accepted_values:
               arguments:
                 values: [true, false]
+
+  - name: seed_cd_wco_arbitration_policy
+    description: >
+      Versioned CD/WCO arbitration thresholds (ap_core). v1: min potential discount EUR
+      and max cash-acceleration days (discount deadline to net due). Policy row selected
+      by invoice document_date. Consumed by arbitration model; fct_inv_sap_cd applies CD limits.
+    config:
+      tags:
+        - core
+    columns:
+      - name: arbitration_policy_version
+        description: Policy label echoed on arbitration output (e.g. v1).
+        tests:
+          - not_null
+          - unique
+      - name: effective_from
+        description: Inclusive start; match document_date >= effective_from.
+        tests:
+          - not_null
+      - name: effective_to
+        description: Inclusive end; match document_date <= effective_to.
+        tests:
+          - not_null
+      - name: minimum_potential_discount_eur
+        description: CD target only if invoice_amount_eur * discount_pct >= this value.
+        tests:
+          - not_null
+      - name: maximum_cash_acceleration_days
+        description: CD target only if calendar days (discount_deadline to net_due) <= this value.
+        tests:
+          - not_null
+
   - name: raw_inv_coupa
     config:
       quote_columns: true
