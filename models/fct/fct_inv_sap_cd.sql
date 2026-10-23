@@ -399,8 +399,6 @@ select
     discount_opportunity_amount,
     not_entitled_reason is null as is_entitled,
     not_entitled_reason,
-    is_cleared,
-    is_paid_in_period,
     arbitration_policy_version,
     potential_discount_eur,
     cash_acceleration_days,
