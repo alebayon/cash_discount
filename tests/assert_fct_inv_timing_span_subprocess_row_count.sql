@@ -1,5 +1,5 @@
--- 107 subprocess rows: 21 x 5 base + 2 rework extras on 5100000020
+-- 124 subprocess rows at 24 KR invoices + 5 (5100000026 SAP-only bundle)
 select count(*) as row_count
 from {{ ref('fct_inv_timing_span') }}
 where phase_level = 'subprocess'
-having count(*) != 124
+having count(*) != 129
