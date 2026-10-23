@@ -30,7 +30,6 @@ models:
       Grain sap_inv_key. Built on fct_inv_sap_core. Structural is_entitled is period-agnostic;
       is_kpi_entitled applies the reporting-period paid gate (dbt vars).
       Version 6 leakage root-cause waterfall and policy fields (D83–D90).
-      Legacy ref fct_inv_sap is a deprecated shim to this model.
     columns:
       - name: sap_inv_key
         description: Composite business key (BELNR-BUKRS-GJAHR).
