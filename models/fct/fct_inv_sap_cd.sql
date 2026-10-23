@@ -26,22 +26,58 @@ with_entitlement as (
 
 ),
 
-with_payment as (
+with_cd_arbitration as (
 
     select
         we.*,
+        case
+            when we.not_entitled_reason is null
+            then arb.arbitration_policy_version
+        end as arbitration_policy_version,
+        case
+            when we.not_entitled_reason is null
+            then arb.potential_discount_eur
+        end as potential_discount_eur,
+        case
+            when we.not_entitled_reason is null
+            then arb.cash_acceleration_days
+        end as cash_acceleration_days,
+        case
+            when we.not_entitled_reason is null
+            then arb.is_cd_eligible
+        end as is_cd_eligible,
+        case
+            when we.not_entitled_reason is null
+             and arb.is_cd_eligible = false
+            then arb.not_cd_eligible_reason
+        end as not_cd_eligible_reason,
+        case
+            when we.not_entitled_reason is null
+            then arb.payment_strategy
+        end as payment_strategy
+    from with_entitlement we
+    left join {{ ref('fct_inv_cd_wco_arbitration') }} arb
+        on we.sap_inv_key = arb.sap_inv_key
+
+),
+
+with_payment as (
+
+    select
+        wca.*,
         (
-            we.clearing_date is not null
-            and we.clearing_date >= '{{ period_start }}'::date
-            and we.clearing_date <= '{{ period_end }}'::date
+            wca.clearing_date is not null
+            and wca.clearing_date >= '{{ period_start }}'::date
+            and wca.clearing_date <= '{{ period_end }}'::date
         ) as is_paid_in_period,
         (
-            we.not_entitled_reason is null
-            and we.clearing_date is not null
-            and we.clearing_date >= '{{ period_start }}'::date
-            and we.clearing_date <= '{{ period_end }}'::date
+            wca.not_entitled_reason is null
+            and coalesce(wca.is_cd_eligible, false)
+            and wca.clearing_date is not null
+            and wca.clearing_date >= '{{ period_start }}'::date
+            and wca.clearing_date <= '{{ period_end }}'::date
         ) as is_kpi_entitled
-    from with_entitlement we
+    from with_cd_arbitration wca
 
 ),
 
@@ -365,6 +401,12 @@ select
     not_entitled_reason,
     is_cleared,
     is_paid_in_period,
+    arbitration_policy_version,
+    potential_discount_eur,
+    cash_acceleration_days,
+    is_cd_eligible,
+    not_cd_eligible_reason,
+    payment_strategy,
     is_kpi_entitled,
     is_taken,
     do_not_take_skonto_at_clearing,

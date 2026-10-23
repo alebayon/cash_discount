@@ -24,6 +24,26 @@ models:
       - name: receipt_date
         description: Mapped Coupa receipt anchor (created_at date) when coupa_id is present.
 
+  - name: fct_inv_cd_wco_arbitration
+    description: >
+      Shared CD/WCO arbitration at sap_inv_key (ap_core). Policy from
+      seed_cd_wco_arbitration_policy by document_date. Exposes gates,
+      not_cd_eligible_reason, and payment_strategy for product facts.
+    columns:
+      - name: sap_inv_key
+        tests:
+          - unique
+          - not_null
+      - name: is_cd_eligible
+        tests:
+          - not_null
+      - name: payment_strategy
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['pursue_cd', 'target_net']
+
   - name: fct_inv_sap_cd
     description: >
       Cash discount SAP invoice fact (canonical). One row per posted vendor invoice (KR).
@@ -76,6 +96,32 @@ models:
           - not_null
       - name: not_entitled_reason
         description: First failing P1 entitlement rule; null when is_entitled is true.
+      - name: arbitration_policy_version
+        description: >
+          Active CD/WCO arbitration policy version when structurally entitled;
+          null when not_entitled_reason is set.
+      - name: potential_discount_eur
+        description: invoice_amount_eur × discount_pct for arbitration; null when structural fail.
+      - name: cash_acceleration_days
+        description: Calendar days discount_deadline_date to net_due_date; null when structural fail.
+      - name: is_cd_eligible
+        description: >
+          Treasury CD program target per arbitration v1. Null when structural
+          not_entitled_reason is set; otherwise true/false.
+      - name: not_cd_eligible_reason
+        description: >
+          First failing arbitration gate when structural OK and is_cd_eligible is false;
+          null when structural fail or when CD eligible.
+        tests:
+          - accepted_values:
+              arguments:
+                values:
+                  - potential_discount_below_minimum
+                  - cash_acceleration_exceeds_maximum
+              config:
+                where: "not_cd_eligible_reason is not null"
+      - name: payment_strategy
+        description: pursue_cd when is_cd_eligible; target_net otherwise; null when structural fail.
       - name: is_cleared
         description: True when clearing_date is not null (invoice has been paid/cleared).
         tests:
@@ -88,8 +134,8 @@ models:
           - not_null
       - name: is_kpi_entitled
         description: >
-          KPI funnel ENT node. is_entitled AND is_paid_in_period for the
-          configured reporting period.
+          KPI funnel ENT node. Structural entitlement (is_entitled), CD/WCO
+          arbitration (is_cd_eligible), and paid in reporting period.
         tests:
           - not_null
       - name: is_taken

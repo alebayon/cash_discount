@@ -97,7 +97,7 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 
 0. Document contract (this file)
 1. Split `fct_inv_sap_core` + `fct_inv_sap_cd` inside `cash_discount`; keep curriculum green — **done** (shims removed 2026-10-23)
-2. Arbitration curriculum + shared policy model
+2. Arbitration curriculum + shared policy model — **done** (2026-10-23); curriculum gap: CD-eligible `structural_terms_vs_capability` hero (see decision below)
 3. Extract `ap_core` package v0.1.0
 4. Pin package from `cash_discount`; remove duplicated core
 5. CI + semver contracts
@@ -110,6 +110,7 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 - Production source and definition for `receipt_date` (synthetic v0 uses Coupa `created_at` on mapped invoices).
 - **Terms at clearing / effective-dated payment terms** — rebuilds can change `discount_deadline_date` and `net_due_date` if terms are read as current state; document limitation for v0; design history before production-grade OTP/CD audit claims.
 - Authoritative date for arbitration policy version if `document_date` is replaced later.
+- **Curriculum:** CD-eligible invoice(s) for `structural_terms_vs_capability` leakage and additional arbitration edge cases (below-minimum €, in-period paid).
 
 ---
 
@@ -226,13 +227,35 @@ Derived:
 - `cash_acceleration_days` = calendar days from `discount_deadline_date` to `net_due_date`
 - `is_cd_eligible` (for CD consumption) = terms eligible AND amount gate AND acceleration gate (AND, no compensation)
 - `payment_strategy` = `pursue_cd` | `target_net`
-- `not_cd_eligible_reason` per handoff vocabulary
+- `not_cd_eligible_reason` vocabulary (v1): `potential_discount_below_minimum`, `cash_acceleration_exceeds_maximum` (first failing gate wins when structural terms qualify for arbitration).
 
 Policy version selected by effective date; v1 evaluation date = `document_date`.
 
 **Not in v1:** hurdle rates, vendor overrides, weighted scoring, single gate overriding the other.
 
-**Impact:** Seed + model in core; `fct_inv_sap_cd` consumes; OTP ignores.
+**Impact:** `seed_cd_wco_arbitration_policy` + `fct_inv_cd_wco_arbitration` (tag `core`); `fct_inv_sap_cd` joins and gates KPI funnel; OTP ignores.
+
+**Status (2026-10-23):** Implemented in monorepo. WCO product consumption deferred.
+
+---
+
+### 2026-10-23 — CD KPI funnel: arbitration gate on ENT [CONVENTION]
+
+**Context:** Arbitration is treasury/program policy, not SAP structural entitlement. CD headline leakage should measure invoices the organization targets for CD, not every terms-eligible row.
+
+**Decision:**
+
+**SQL evaluation order on `fct_inv_sap_cd`:** structural `not_entitled_reason` → CD arbitration (`with_cd_arbitration`, join `fct_inv_cd_wco_arbitration`) → reporting period (`is_paid_in_period`, `is_kpi_entitled`).
+
+**Columns (product fact):** `arbitration_policy_version`, `potential_discount_eur`, `cash_acceleration_days`, `is_cd_eligible`, `not_cd_eligible_reason`, `payment_strategy`. When `not_entitled_reason` is set, arbitration reason columns stay **null** (policy not evaluated); do not merge policy into `not_entitled_reason`.
+
+**KPI ENT:** `is_kpi_entitled` = structural OK ∧ `coalesce(is_cd_eligible, false)` ∧ cleared in reporting period. `is_excluded` (do-not-take at clearing) unchanged — downstream of ENT.
+
+**Curriculum (synthetic v0):** Hero `5100000016` (Z205) is an **arbitration-out** case (`cash_acceleration_exceeds_maximum`), not leakage. V6 bucket `structural_terms_vs_capability` has **no** leakage row until a **CD-eligible** terms hero is added (e.g. short discount days with acceleration ≤ 20). Mart by-cause row count **6** until that hero exists.
+
+**Why:** Separates feasibility from program scope; shared arbitration fact supports WCO without redefining structural entitlement.
+
+**Impact:** Funnel/mart singular tests updated (kpi_entitled 15, leakage 11, leakage_eur 170.20 for 2024 vars). Future: add labeled seeds + restore full V6 cause coverage.
 
 ---
 
@@ -276,7 +299,7 @@ Update row counts after `dbt build`.
 | `fct_inv_coupa_changes` | fct | change event | existing | |
 | `fct_inv_sap_changes` | fct | change event | existing | |
 | `seed_payment_term_sap` | seed | ZTERM | existing | Includes `net_days` |
-| `seed_cd_wco_arbitration_policy` | seed | policy version | planned | |
+| `seed_cd_wco_arbitration_policy` | seed | policy version | existing | v1; effective on `document_date`; tag `core` |
 | `fct_inv_sap_core` | fct | sap_inv_key | existing | 24 rows; tag `core`; public contract v0 |
 | `fct_inv_timing_span` | fct | span grain | existing | Core; refs `fct_inv_sap_core` |
 | `int_inv_coupa_overlay_intervals` | int | interval | existing | Core |
@@ -285,8 +308,8 @@ Update row counts after `dbt build`.
 | `fct_inv_timing_overlay_cd` | fct (CD) | overlay interval | existing | 10 rows; canonical CD overlay; `_core` ∪ `payment_run_wait`; tag `cash_discount` |
 | `fct_inv_timing_overlay_span` | fct | overlap | existing | CD; refs `fct_inv_timing_overlay_cd` + `fct_inv_timing_span` |
 | `fct_inv_timing_overlay_span_observed` | fct | overlap | planned | Optional: span on `_core` only |
-| `int_*` / `fct_*` arbitration | core | sap_inv_key | planned | Name TBD |
-| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; canonical CD invoice fact; tag `cash_discount`; extends `fct_inv_sap_core` |
+| `fct_inv_cd_wco_arbitration` | fct | sap_inv_key | existing | 24 rows; tag `core`; gates + `payment_strategy`; WCO/CD consume |
+| `fct_inv_sap_cd` | fct (CD) | sap_inv_key | existing | 24 rows; extends core + arbitration; ENT includes `is_cd_eligible`; V6 leakage |
 
 ---
 
@@ -307,4 +330,4 @@ Update row counts after `dbt build`.
 
 Last updated: 2026-10-23
 
-Invoice spine: `fct_inv_sap_core` → `fct_inv_sap_cd` (24 rows). Timing overlay: `fct_inv_timing_overlay_core` (7) → `fct_inv_timing_overlay_cd` (10). Legacy shims and compile guard removed; curriculum refs canonical models only. **Next:** CD/WCO arbitration seed + shared model; wire into `fct_inv_sap_cd`.
+Invoice spine: `fct_inv_sap_core` → `fct_inv_cd_wco_arbitration` (join) → `fct_inv_sap_cd` (24 rows). Timing overlay: `_core` (7) → `_cd` (10). Shims removed. CD/WCO arbitration v1 live; `is_kpi_entitled` requires `is_cd_eligible`. Curriculum: `5100000016` = arbitration hero; **todo** CD-eligible `structural_terms_vs_capability` leakage hero (+ optional further arbitration cases). **Next:** `ap_core` package v0.1.0 extract; dim inactive vendors.

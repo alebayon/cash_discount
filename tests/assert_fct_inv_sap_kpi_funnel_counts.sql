@@ -12,9 +12,9 @@ from (
     from {{ ref('fct_inv_sap_cd') }}
 ) actual
 where row_count != 24
-   or kpi_entitled != 16
-   or taken_true != 3
-   or not_taken != 13
-   or excluded_true != 1
-   or leakage_true != 12
-   or leakage_amount_total != 190.20
+    or kpi_entitled != 15
+    or taken_true != 3
+    or not_taken != 12
+    or excluded_true != 1
+    or leakage_true != 11
+    or leakage_amount_total != 170.20
