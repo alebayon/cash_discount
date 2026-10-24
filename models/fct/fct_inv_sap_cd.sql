@@ -405,6 +405,8 @@ select
     is_cd_eligible,
     not_cd_eligible_reason,
     payment_strategy,
+    is_cleared,
+    is_paid_in_period,
     is_kpi_entitled,
     is_taken,
     do_not_take_skonto_at_clearing,
