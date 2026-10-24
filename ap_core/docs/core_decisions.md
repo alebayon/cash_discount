@@ -206,7 +206,21 @@ EUR amounts use document-date FX; `invoice_amount_eur` is stable on rebuild for 
 
 **Decision:** `dim_vendor_sap` and `dim_vendor_coupa` retain inactive/deleted suppliers; expose `is_active` (or equivalent). Do not filter them out of core dimensions.
 
-**Impact:** May diverge from current CD dims that filter active-only until core dims are adopted.
+**Impact:** Implemented in monorepo (2026-10-24). SAP: `is_active` = `deletion_flag is null` (LOEVM). Coupa: `is_active` = `status = 'active'`; `status` on dim. Marts filter `is_active` when current supplier lists are needed.
+
+**Status (2026-10-24):** **done.** Curriculum inactive heroes: SAP `0000100005`, Coupa `9000005`. Row counts: SAP 8 (7 active), Coupa 7 (6 active).
+
+---
+
+### 2026-10-24 — Vendor dimensions: inactive rows on dim [CONVENTION]
+
+**Context:** Core policy (2026-10-20) required historical vendor keys on dims; CD dims previously filtered to active-only.
+
+**Decision:** Remove active-only `where` clauses from `dim_vendor_sap` and `dim_vendor_coupa`. Expose `is_active` on both; add `status` on Coupa dim.
+
+**Why:** Invoice and Coupa facts keep valid FKs to dim for deactivated suppliers; product layers choose active filters.
+
+**Impact:** Tests `assert_dim_vendor_sap_row_and_active_count`, `assert_dim_vendor_coupa_row_and_active_count`, `assert_dim_vendor_inactive_curriculum`. No change to CD KPI funnel.
 
 ---
 
@@ -298,8 +312,8 @@ Update row counts after `dbt build`.
 | Object | Layer | Grain | Status | Notes |
 |--------|-------|-------|--------|-------|
 | `src_*` | src | per source | existing | Tagged `core` in dbt_project.yml |
-| `dim_vendor_sap` | dim | vendor | existing | Move to retain inactive + `is_active` (later) |
-| `dim_vendor_coupa` | dim | supplier | existing | Same |
+| `dim_vendor_sap` | dim | vendor | existing | 8 rows (7 active); `is_active`; inactive `0000100005` |
+| `dim_vendor_coupa` | dim | supplier | existing | 7 rows (6 active); `status`, `is_active`; inactive `9000005` |
 | `map_inv_sap_coupa` | map | (sap_inv_key, coupa_id) | existing | 21 rows; SAP side from `src_inv_sap` + `fct_inv_coupa` |
 | `fct_inv_coupa` | fct | coupa invoice | existing | |
 | `fct_inv_coupa_changes` | fct | change event | existing | |
@@ -334,6 +348,6 @@ Update row counts after `dbt build`.
 
 ## Chat handoff notes
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
-Invoice spine: `fct_inv_sap_core` → `fct_inv_cd_wco_arbitration` → `fct_inv_sap_cd` (**25** KR rows). Timing overlay: `_core` (7) → `_cd` (10). Arbitration v1 + curriculum heroes **0015** (below €10), **0016** (Z525 structural_terms leakage), **0026** (Z205 acceleration-out). KPI funnel (2024 vars): ENT 16, leakage 12, €190.20. **Next:** `ap_core` package v0.1.0 extract; dim inactive vendors; optional more arbitration/limit edge cases.
+Invoice spine: `fct_inv_sap_core` → `fct_inv_cd_wco_arbitration` → `fct_inv_sap_cd` (**25** KR rows). Timing overlay: `_core` (7) → `_cd` (10). Arbitration v1 + curriculum heroes **0015** / **0016** / **0026**. Dims: inactive retained (`dim_vendor_sap` 8, `dim_vendor_coupa` 7). **Next:** `ap_core` package v0.1.0 extract.

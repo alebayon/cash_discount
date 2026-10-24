@@ -44,7 +44,7 @@ All day counts use **calendar days** (warehouse `datediff` day semantics). No ho
 | Policy / maps | `seeds/seed_*` | Payment terms, status maps, attribution policy version |
 | Staging | `models/src/` | Rename, cast, keys — no business rules |
 | Intermediate | `models/int/` | Ephemeral — active policy row, blocker interval prep |
-| Dimensions | `models/dim/` | Active vendors/suppliers |
+| Dimensions | `models/dim/` | Vendors/suppliers (inactive retained; `is_active`) |
 | Bridge | `models/map/` | SAP invoice ↔ Coupa match at posting |
 | Facts | `models/fct/` | Invoice fact, change streams, phase spans, overlays, timing allocation |
 | Marts | `models/mart/` | Period KPIs, cause breakdown, timing action views |

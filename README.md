@@ -75,27 +75,33 @@ This analytics model is built around posted vendor invoices in accounts payable.
 ### Design principles
 
 #### Invoice-centric metrics
+
 Net invoice value and cash-discount amounts are aggregated at invoice level. Dashboard-ready KPIs are built from that grain and from reporting period aggregates, not from single event rows alone.
 
 #### SAP as system of record for KPIs
+
 SAP is where invoices are ready to pay and where clearing and discount taken are recorded. When the same attribute exists in Coupa and SAP, metrics use SAP where available, on the assumption SAP reflects the latest payable state and downstream tools may not be fully reconciled.
 
 #### Coupa for pre-SAP context only
+
 Coupa supports workflow and timing diagnosis (changes, holds, rework) before and through posting. It does not define headline leakage KPIs; those come from the SAP invoice fact.
 
 #### Bounded system scope
+
 Only SAP and Coupa are modeled. Field names and flows are inspired by real products; logic and data are synthetic. Additional source systems are out of scope for this showcase.
 
 ### Minimum model grains
 
 The design expects these distinct grains:
 
-| Grain | Purpose |
-|-------|---------|
-| **Invoice (header)** | One row per payable invoice — funnel, entitlement, leakage, primary cause |
-| **Change / event** | One row per status or field change — overlays and process history |
-| **Supplier (master)** | One row per vendor id — names and attributes for reporting |
-| **Reporting period** | Aggregated KPIs and breakdowns for a chosen clearing period |
+
+| Grain                 | Purpose                                                                   |
+| --------------------- | ------------------------------------------------------------------------- |
+| **Invoice (header)**  | One row per payable invoice — funnel, entitlement, leakage, primary cause |
+| **Change / event**    | One row per status or field change — overlays and process history         |
+| **Supplier (master)** | One row per vendor id — names and attributes for reporting                |
+| **Reporting period**  | Aggregated KPIs and breakdowns for a chosen clearing period               |
+
 
 Cross-system match, staging, phase spans, blocker overlays, timing allocation, and marts implement these grains; layer-by-layer placement is in Design layers.
 
@@ -108,6 +114,8 @@ Cross-system match, staging, phase spans, blocker overlays, timing allocation, a
 - Implementation — seeds, tests, dbt commands, sample report
 - Model inventory — description of tables
 
+
+
 ## Design layers:
 
 - Raw data seed files: source system data based on actual fields from tools like SAP and Coupa
@@ -119,6 +127,8 @@ Cross-system match, staging, phase spans, blocker overlays, timing allocation, a
 - MAP model: matching logic between the 2 systems SAP and Coupa
 - MART models: last layer of transformation, it transforms the fact tables into dashboard ready tables and calculate KPIs
 
+
+
 ## Policy attributions
 
 1. Minimum processing days: Establish the minimum feasible time for Accounts Payable team to process an invoice, even with urgency. Anything below that is unfeasible and it is the primary cause of leaking cash discount. Default value: 4
@@ -126,28 +136,34 @@ Cross-system match, staging, phase spans, blocker overlays, timing allocation, a
 3. Minimum payment runway days: This is the minimum days a payment run needs for execution. The goal of the pre-SAP process is to deliver the invoice with enough payment runway days, and this is a hard line of ownership split between pre-SAP and payment run process owners. That creates a deadline for invoice processing of target deadline minus the minimum payment runway days. Default value: 3
 
 
+
 ## The Funnel
 
 One of the main goals of this use case is to build a decision tree that assigns each invoice to a single category. Every split in the funnel has a meaningful filter and business logic split, from defining scope populations to main contributors of cash discount leakage.
 
-
 ### Population and KPI scope
 
-0. Overall dataset population: all documents in an Accounts Payable domain.
-1. Vendor Invoices: first filter is only invoices from a registered vendor (document type = 'KR' and vendor id not null).
-2. Structural entitlement: Cash discount potential (baseline, terms, deadline, positive invoice base). Missing fields set `not_entitled_reason` (outside structural universe).
-3. CD/WCO arbitration: Treasury policy (input seed for arbitration) — minimum potential discount EUR and max cash-acceleration days. When structural OK, "is cd eligible" false sets "not eligible reason" (e.g. below €10 or excessive acceleration); not merged into structural reasons.
-4. Paid in period: Open invoices and clears outside the reporting window are out of scope (showcase: calendar year 2024).
-5. KPI entitled: Vendor invoice AND structural OK AND CD eligible AND paid in period (kpi entitled).
-6. Realized vs Not taken: After entering the KPI universe, split taken (full discount captured) vs not taken (zero captured at clearing; partial capture out of scope).
+1. Overall dataset population: all documents in an Accounts Payable domain.
+2. Vendor Invoices: first filter is only invoices from a registered vendor (document type = 'KR' and vendor id not null).
+3. Structural entitlement: Cash discount potential (baseline, terms, deadline, positive invoice base). Missing fields set `not_entitled_reason` (outside structural universe).
+4. CD/WCO arbitration: Treasury policy (input seed for arbitration) — minimum potential discount EUR and max cash-acceleration days. When structural OK, "is cd eligible" false sets "not eligible reason" (e.g. below €10 or excessive acceleration); not merged into structural reasons.
+5. Paid in period: Open invoices and clears outside the reporting window are out of scope (showcase: calendar year 2024).
+6. KPI entitled: Vendor invoice AND structural OK AND CD eligible AND paid in period (kpi entitled).
+7. Realized vs Not taken: After entering the KPI universe, split taken (full discount captured) vs not taken (zero captured at clearing; partial capture out of scope).
+
+
 
 ### Excluded and leakage
 
-7. Excluded vs Leakage: From the not taken there is a split into leakage and excluded (justified non-take). There is a custom flag (do-not-take-skonto at clearing) which can be activated in special cases and the lost cash discount analysis does not deep-dive into the reasons. It will be still a missed discount opportunity, but not classified as leakage.
+1. Excluded vs Leakage: From the not taken there is a split into leakage and excluded (justified non-take). There is a custom flag (do-not-take-skonto at clearing) which can be activated in special cases and the lost cash discount analysis does not deep-dive into the reasons. It will be still a missed discount opportunity, but not classified as leakage.
+
+
 
 ### Leakage waterfall
 
-6. Leakage split: there are several categories in leakage. In this level the rules are not in principle exclusive, they could apply at the same time, but it is very important to establish a hierarchy of conditions that splits the ownership in a way that makes more sense. This means that every invoice with leakage will be evaluated in order, and as soon as it falls into one rule, it automatically rejects the belonging to any other categories downstream.
+1. Leakage split: there are several categories in leakage. In this level the rules are not in principle exclusive, they could apply at the same time, but it is very important to establish a hierarchy of conditions that splits the ownership in a way that makes more sense. This means that every invoice with leakage will be evaluated in order, and as soon as it falls into one rule, it automatically rejects the belonging to any other categories downstream.
+
+
 
 #### Data quality
 
@@ -194,10 +210,14 @@ Allocation is a management proration for prioritization. It is not a second root
 
 Each timing leakage invoice is assigned one allocation regime, driven by runway at handoff (SAP entry → discount deadline) compared to minimum payment runway days from attribution policy:
 
-| Regime | Condition | What gets allocated |
-|--------|---------------------------|---------------------|
-| Payment | Runway at handoff ≥ minimum payment runway | Euros only in the payment window, across payment timing buckets |
+
+| Regime                  | Condition                                  | What gets allocated                                                       |
+| ----------------------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| Payment                 | Runway at handoff ≥ minimum payment runway | Euros only in the payment window, across payment timing buckets           |
 | Pre-SAP ("pre_posting") | Runway at handoff < minimum payment runway | Euros across subprocess phases (and buckets within verification/approval) |
+
+
+
 
 ### Payment regime
 
@@ -227,6 +247,8 @@ Within verification and approval:
 - If labeled blocker days do not fill the phase, the gap can go to "no recorded blocker" (investigate unlabeled time—not "normal operations" as fact).
 - If multiple blockers overlap the same calendar days, gross days can exceed the phase clock, blocker euros are scaled so phase and invoice totals still reconcile.
 
+
+
 ### Reconciliation and outputs
 
 For every invoice in scope, sum("priority allocated eur") = "lost discount amount". Portfolio timing allocation ties to the timing slice of leakage by cause in the headline marts.
@@ -247,12 +269,16 @@ The model was built in layers. Each layer added capability without rewriting ear
 - Introduced excluded vs leakage for not-taken eligible invoices.
 - Published headline period KPIs (counts, opportunity, leakage, rate).
 
+
+
 ### Coupa workflow and cross-system match
 
 - Added Coupa invoice and supplier data for process context, not as a second KPI system.
 - Linked Coupa to SAP at posting so each matched pair shares one business key.
 - Kept SAP-only invoices in scope where no Coupa row exists.
 - Stored Coupa change history for later phase and blocker logic.
+
+
 
 ### Leakage causes and cause reporting
 
@@ -261,21 +287,29 @@ The model was built in layers. Each layer added capability without rewriting ear
 - Expanded the curriculum so every cause type has at least one labeled example invoice.
 - Added a reporting mart that breaks leakage euros and counts by primary cause, tied to the headline KPI.
 
+
+
 ### Timing phases (ownership and subprocess)
 
 - Slice 1: Measured calendar time in two ownership phases (before SAP entry, and payment through clearing) without changing leakage numbers.
 - Slice 2: Split pre-SAP ownership into intake, verification, approval, and interface using Coupa events, with checks that subprocess days reconcile to ownership pre-SAP time.
+
+
 
 ### Blocker overlays
 
 - Slice 3: Added dated blocker intervals (holds, rework, supplier wait, payment blocks, post-deadline wait) as explanations inside phases.
 - Joined blockers to phase spans to count exposure days; spans remain the clock, overlays explain labeled time.
 
+
+
 ### Timing allocation and action-oriented marts
 
 - Slice 4: For timing-type leakage only, split each invoice lost discount euros across phases and named timing buckets using day-based proration.
 - Split logic into pre-SAP vs payment regimes depending on whether enough payment runway existed at SAP handoff.
 - Built portfolio marts that rank phases and buckets for where to act first versus watch later.
+
+
 
 ### Richer curriculum and overlay sources
 
@@ -284,19 +318,27 @@ The model was built in layers. Each layer added capability without rewriting ear
 - Derived Coupa blockers from change history instead of hand-maintained overlay rows where possible.
 - Derived SAP payment blocks from posting change events; derived post-deadline payment wait from dates and non-overlap rules.
 
+
+
 ### Attribution policy refresh
 
 - Centralized processing and payment-reserve thresholds in versioned policy seeds consumed by the invoice fact.
 - Refined the leakage waterfall: contract design, intake feasibility, compressed pre-SAP execution, standard pre-SAP execution, and payment execution.
 - Reconciled cause marts and timing allocation to the updated rules and curriculum.
 
+
+
 ### Exclusion rule refinement
 
 - Narrowed excluded to an explicit do-not-take-discount flag at clearing, so other operational flags at clearing do not count as justified exclusion in the headline funnel.
 
+
+
 ### Stakeholder report
 
 - Added a sample PDF generator for headline KPIs, cause mix, and timing actions in readable form; curriculum numbers are embedded in the script until mart-driven export is added.
+
+
 
 ### How tests evolved with the build
 
@@ -304,9 +346,15 @@ The model was built in layers. Each layer added capability without rewriting ear
 - Singular SQL tests guard the labeled curriculum (specific invoices, funnel counts, euro totals, reconciliation).
 - New slices extended tests without removing original funnel checks unless the curriculum intentionally changed.
 
+
+
 ## Model inventory
 
+
+
 ### Tier A — core models
+
+
 
 #### fct_inv_sap_core / fct_inv_sap_cd
 
@@ -324,6 +372,8 @@ Notable outputs: not_entitled_reason, is_cd_eligible, not_cd_eligible_reason, is
 
 ---
 
+
+
 #### fct_inv_timing_span
 
 Description: Calendar phase spans for process timing (how long each phase lasted).
@@ -339,6 +389,8 @@ Consumed by: fct_inv_timing_overlay_span, fct_inv_timing_allocation (weights), m
 Notable outputs: phase_level, phase_code, span_days, span_status, span_start_date, span_end_date.
 
 ---
+
+
 
 #### fct_inv_timing_overlay_core / fct_inv_timing_overlay_cd
 
@@ -356,6 +408,8 @@ Notable outputs: interval_start_date, interval_end_date, interval_days, reason_g
 
 ---
 
+
+
 #### fct_inv_timing_allocation
 
 Description: Splits timing-type leakage euros across phases and timing buckets for prioritisation.
@@ -371,6 +425,8 @@ Consumed by: mart_timing_phase_impact, mart_timing_bucket_impact, sample PDF / a
 Notable outputs: priority_allocated_eur, gross_exposure_days, bucket_code.
 
 ---
+
+
 
 #### mart_cash_discount_kpi
 
@@ -388,6 +444,8 @@ Notable outputs: kpi_entitled_count, leakage_count, leakage_eur, leakage_rate, d
 
 ---
 
+
+
 #### mart_cash_discount_kpi_by_cause
 
 Description: Leakage broken down by primary cause (reconciles to headline mart).
@@ -403,6 +461,8 @@ Consumed by: dashboards, sample report, cause reconciliation tests.
 Notable outputs: primary_cause, leakage_count, leakage_eur.
 
 ---
+
+
 
 #### mart_timing_bucket_impact
 
@@ -420,23 +480,30 @@ Notable outputs: priority_allocated_eur, action_status, owner_role, gross_exposu
 
 ---
 
+
+
 ### Tier B — other models (summary)
 
-| Model | Grain | Role |
-|-------|-------|------|
-| src_* | same as raw grain | Rename, cast, trim; no business rules |
-| dim_vendor_sap / dim_vendor_coupa | active vendor/supplier | Master data for reporting names |
-| map_inv_sap_coupa | sap_inv_key ↔ coupa_id | Cross-system match at posting |
-| fct_inv_coupa | Coupa invoice (invoice filter in fact) | Process context; feeds receipt_date on SAP fact |
-| fct_inv_coupa_changes | coupa_change_id | Event stream for spans and Coupa overlays |
-| fct_inv_sap_changes | sap_change_id | Event stream for SAP payment blocks |
-| fct_inv_timing_overlay_span | overlap rows | Exposure bridge (not euro allocation) |
-| mart_timing_phase_impact | period × phase | Phase-level timing EUR for prioritisation |
-| mart_timing_phase_profile | period × phase | Phase duration portfolio (instrumentation) |
-| int_* | ephemeral | Policy row, Coupa/SAP blocker interval prep |
+
+| Model                             | Grain                                  | Role                                            |
+| --------------------------------- | -------------------------------------- | ----------------------------------------------- |
+| src_*                             | same as raw grain                      | Rename, cast, trim; no business rules           |
+| dim_vendor_sap / dim_vendor_coupa | vendor_id / supplier id (incl. inactive) | Master data; `is_active` for current-supplier filters |
+| map_inv_sap_coupa                 | sap_inv_key ↔ coupa_id                 | Cross-system match at posting                   |
+| fct_inv_coupa                     | Coupa invoice (invoice filter in fact) | Process context; feeds receipt_date on SAP fact |
+| fct_inv_coupa_changes             | coupa_change_id                        | Event stream for spans and Coupa overlays       |
+| fct_inv_sap_changes               | sap_change_id                          | Event stream for SAP payment blocks             |
+| fct_inv_timing_overlay_span       | overlap rows                           | Exposure bridge (not euro allocation)           |
+| mart_timing_phase_impact          | period × phase                         | Phase-level timing EUR for prioritisation       |
+| mart_timing_phase_profile         | period × phase                         | Phase duration portfolio (instrumentation)      |
+| int_*                             | ephemeral                              | Policy row, Coupa/SAP blocker interval prep     |
+
+
+
 
 ## Sample stakeholder report
 
 Synthetic **2024** curriculum period — client-style summary of headline KPIs, leakage by cause, and timing actions (numbers align with mart tests).
 
 - **PDF:** [cash_discount_report_2024_v6.pdf](reports/cash_discount_report_2024_v6.pdf)
+

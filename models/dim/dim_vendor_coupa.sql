@@ -38,10 +38,10 @@ final as (
         country_code,
         city,
         postal_code,
+        status,
         created_at,
         status = 'active' as is_active
     from deduped
-    where status = 'active'
 
 )
 
@@ -51,6 +51,7 @@ select
     country_code,
     city,
     postal_code,
+    status,
     created_at,
     is_active
 from final

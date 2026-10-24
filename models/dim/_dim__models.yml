@@ -2,7 +2,9 @@ version: 2
 
 models:
   - name: dim_vendor_sap
-    description: SAP vendor dimension. One row per active vendor.
+    description: >
+      SAP vendor dimension (ap_core). One row per vendor_id including deleted
+      (LOEVM) rows; is_active false when deletion_flag is set.
     columns:
       - name: vendor_id
         description: SAP vendor account number (from LIFNR).
@@ -10,25 +12,31 @@ models:
           - unique
           - not_null
       - name: is_active
-        description: True for all rows in dim (deleted vendors excluded).
+        description: True when deletion_flag is null (not marked for deletion).
         tests:
           - not_null
           - accepted_values:
               arguments:
-                values: [true]
+                values: [true, false]
 
   - name: dim_vendor_coupa
-    description: Coupa supplier dimension. One row per active supplier.
+    description: >
+      Coupa supplier dimension (ap_core). One row per supplier id including
+      inactive status; filter is_active in marts when needed.
     columns:
       - name: vendor_id
         description: Coupa supplier system id (from raw id).
         tests:
           - unique
           - not_null
+      - name: status
+        description: Coupa supplier status (e.g. active, inactive).
+        tests:
+          - not_null
       - name: is_active
-        description: True for all rows in dim (inactive suppliers excluded).
+        description: True when status = active.
         tests:
           - not_null
           - accepted_values:
               arguments:
-                values: [true]
+                values: [true, false]

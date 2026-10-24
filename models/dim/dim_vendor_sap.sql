@@ -45,7 +45,6 @@ final as (
         created_date,
         deletion_flag is null as is_active
     from deduped
-    where deletion_flag is null
 
 )
 
