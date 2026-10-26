@@ -1,6 +1,0 @@
-overlay_reason_code,reason_group,source_system,description,is_active
-on_hold,hold,coupa,Coupa on_hold change; informational per D27; span clock unchanged,true
-rework,rework,coupa,Submitted through rejected visit window (D20),true
-inv_dispute,dispute,coupa,Coupa disputed change until next status (D75),true
-payment_block,block,sap,SAP payment block set through release; not clearing snapshot,true
-payment_run_wait,payment_execution,derived,Post-deadline window minus payment_block (D64),true
