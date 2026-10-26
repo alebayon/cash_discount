@@ -1,3 +1,4 @@
+{{ config(tags=['cash_discount']) }}
 {{ config(materialized='view') }}
 
 with measured_spans as (

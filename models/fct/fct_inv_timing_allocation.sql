@@ -1,3 +1,4 @@
+{{ config(tags=['cash_discount']) }}
 {{ config(materialized='table') }}
 
 with timing_invoices as (

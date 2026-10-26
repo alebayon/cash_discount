@@ -22,24 +22,14 @@ clean-targets:
 
 models:
   cash_discount:
-    src:
-      +materialized: view
-      +tags:
-        - core
     int:
       +materialized: ephemeral
       +tags:
-        - core
-    dim:
-      +materialized: table
-      +tags:
-        - core
-    map:
-      +materialized: table
-      +tags:
-        - core
+        - cash_discount
     fct:
       +materialized: table
+      +tags:
+        - cash_discount      
     mart:
       +materialized: table
       +tags:

@@ -1,3 +1,4 @@
+{{ config(tags=['cash_discount']) }}
 {% set period_start = var('reporting_period_start', '2024-01-01') %}
 {% set period_end   = var('reporting_period_end', '2024-12-31') %}
 

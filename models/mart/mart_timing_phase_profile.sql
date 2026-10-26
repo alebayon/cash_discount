@@ -1,3 +1,4 @@
+{{ config(tags=['cash_discount']) }}
 {% set period_start = var('reporting_period_start', '2024-01-01') %}
 {% set period_end   = var('reporting_period_end', '2024-12-31') %}
 
@@ -7,7 +8,7 @@ with measured_spans as (
         phase_level,
         phase_code,
         span_days
-    from {{ ref('fct_inv_timing_span') }}
+    from {{ ref('ap_core', 'fct_inv_timing_span') }}
     where span_status = 'measured'
       and span_end_date >= '{{ period_start }}'::date
       and span_end_date <= '{{ period_end }}'::date

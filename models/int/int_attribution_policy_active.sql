@@ -1,3 +1,4 @@
+{{ config(tags=['cash_discount']) }}
 select
     attribution_policy_version,
     minimum_processing_days,
