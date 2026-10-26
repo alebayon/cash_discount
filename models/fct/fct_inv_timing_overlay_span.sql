@@ -10,7 +10,7 @@ with measured_spans as (
         span_start_date,
         span_end_date,
         span_days
-    from {{ ref('fct_inv_timing_span') }}
+    from {{ ref('ap_core', 'fct_inv_timing_span') }}
     where span_status = 'measured'
 
 ),

@@ -50,7 +50,7 @@ measured_spans as (
                 least(s.span_end_date, inv.discount_deadline_date)
             )
         ) as span_visit_weight_days
-    from {{ ref('fct_inv_timing_span') }} s
+    from {{ ref('ap_core', 'fct_inv_timing_span') }} s
     inner join timing_invoices inv
         on s.sap_inv_key = inv.sap_inv_key
     where s.span_status = 'measured'
