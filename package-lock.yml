@@ -1,0 +1,5 @@
+packages:
+  - git: https://github.com/alebayon/ap_core.git
+    name: ap_core
+    revision: daefd4e3ed50449f8afad3c478964b1423b9fe95
+sha1_hash: c2da7ac9b2f4cb9a734487b48f180257e4d91389

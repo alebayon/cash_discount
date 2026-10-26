@@ -4,7 +4,7 @@
 
 with base as (
     select *
-    from {{ ref('fct_inv_sap_core') }}
+    from {{ ref('ap_core', 'fct_inv_sap_core') }}
 
 ),
 
@@ -56,7 +56,7 @@ with_cd_arbitration as (
             then arb.payment_strategy
         end as payment_strategy
     from with_entitlement we
-    left join {{ ref('fct_inv_cd_wco_arbitration') }} arb
+    left join {{ ref('ap_core', 'fct_inv_cd_wco_arbitration') }} arb
         on we.sap_inv_key = arb.sap_inv_key
 
 ),

@@ -13,7 +13,7 @@ with observed as (
         source_system,
         source_change_id,
         interval_notes
-    from {{ ref('fct_inv_timing_overlay_core') }}
+    from {{ ref('ap_core', 'fct_inv_timing_overlay_core') }}
 
 ),
 
@@ -43,7 +43,7 @@ blocks_clipped as (
         greatest(b.interval_start_date, w.win_start) as block_start,
         least(b.interval_end_date, w.win_end) as block_end
     from payment_windows w
-    inner join {{ ref('int_inv_sap_payment_block_intervals') }} b
+    inner join {{ ref('ap_core', 'int_inv_sap_payment_block_intervals') }} b
         on w.sap_inv_key = b.sap_inv_key
     where greatest(b.interval_start_date, w.win_start)
         < least(b.interval_end_date, w.win_end)

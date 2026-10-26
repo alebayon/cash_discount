@@ -1,0 +1,3 @@
+packages:
+  - git: "https://github.com/alebayon/ap_core.git"
+    revision: v0.1.0
