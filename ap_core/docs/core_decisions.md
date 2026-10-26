@@ -1,7 +1,7 @@
 # ap_core — decisions log
 
 Record durable choices for the **shared AP knowledge model** (`ap_core`).
-Built inside the `cash_discount` workspace until extracted as a dbt package; consumed by cash_discount, on_time_payment, working_capital, and later products.
+Extracted as dbt package **v0.1.0** ([`alebayon/ap_core`](https://github.com/alebayon/ap_core)); consumed by cash_discount, on_time_payment, working_capital, and later products.
 
 **Related:** Cash-discount–only policy and curriculum → `docs/decisions.md` (legacy log until CD is refactored onto product extensions).
 
@@ -11,7 +11,7 @@ Built inside the `cash_discount` workspace until extracted as a dbt package; con
 
 - **Package / layer name:** ap_core (dbt tag: `core`)
 - **Purpose:** Durable SAP invoice facts, payment terms and dates, Coupa process evidence, cross-system mapping, neutral timing spans, observed blocker intervals, and shared CD/WCO arbitration policy. No product KPI funnels (CD leakage, OTP late, WCO strategy compliance).
-- **Workspace (staging):** `C:\dbt\cash_discount` — core models live under `models/` with tag `core` until Phase 2 extract.
+- **Package repo:** `https://github.com/alebayon/ap_core` (local dev: `C:\dbt\ap_core`). **cash_discount** pins the package in root `packages.yml`; core SQL/seeds no longer live in the product repo.
 - **Grain anchor:** One row per in-scope SAP vendor invoice, keyed by `sap_inv_key`.
 - **Calendar:** Calendar days throughout v0 (Snowflake `datediff('day', …)`), consistent with CD decisions D6.
 
@@ -98,8 +98,8 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 0. Document contract (this file)
 1. Split `fct_inv_sap_core` + `fct_inv_sap_cd` inside `cash_discount`; keep curriculum green — **done** (shims removed 2026-10-23)
 2. Arbitration curriculum + shared policy model — **done** (2026-10-23); labeled heroes 5100000015 / 5100000016 / 5100000026 (see 2026-10-23 CD KPI funnel)
-3. Extract `ap_core` package v0.1.0
-4. Pin package from `cash_discount`; remove duplicated core
+3. Extract `ap_core` package v0.1.0 — **done** (2026-10-26); tag `v0.1.0` on GitHub
+4. Pin package from `cash_discount`; remove duplicated core — **done** (2026-10-26); `ref('ap_core', …)` on CD facts; `dbt build --select +tag:cash_discount` green
 5. CI + semver contracts
 6. Build OTP against core only
 
@@ -113,6 +113,20 @@ Do not use `tag:cash_discount+` when the goal is to build upstream core first.
 ---
 
 ## Decisions
+
+### 2026-10-26 — ap_core package v0.1.0 extract and cash_discount pin [ARCHITECTURE]
+
+**Context:** Steps 3–4 of implementation sequence; avoid duplicate warehouse objects and split-brain core edits.
+
+**Decision:**
+
+- Publish shared AP as dbt package **`ap_core`** v0.1.0 (models, seeds, core tests, `docs/core_decisions.md`).
+- **cash_discount** depends via root `packages.yml` + `dbt deps`; product models use `ref('ap_core', '<model>')` for core nodes.
+- Product repo retains only CD layer: `fct_inv_sap_cd`, timing overlay `_cd`, allocation, overlay span, marts, `int_attribution_policy_active`, `seed_attribution_policy`.
+
+**Consumer build:** `dbt build --select +tag:cash_discount` (builds package ancestors first).
+
+**Impact:** Core changes ship in `ap_core` with semver tags; bump `revision` in `packages.yml` to adopt releases. Next: step 5 CI + semver contracts.
 
 ### 2026-10-21 — Model naming: ap_core vs product extensions [CONVENTION]
 
@@ -348,6 +362,6 @@ Update row counts after `dbt build`.
 
 ## Chat handoff notes
 
-Last updated: 2026-10-24
+Last updated: 2026-10-26
 
-Invoice spine: `fct_inv_sap_core` → `fct_inv_cd_wco_arbitration` → `fct_inv_sap_cd` (**25** KR rows). Timing overlay: `_core` (7) → `_cd` (10). Arbitration v1 + curriculum heroes **0015** / **0016** / **0026**. Dims: inactive retained (`dim_vendor_sap` 8, `dim_vendor_coupa` 7). **Next:** `ap_core` package v0.1.0 extract.
+Package **v0.1.0** on GitHub; **cash_discount** pinned (duplicate core removed). Spine unchanged: `fct_inv_sap_core` → `fct_inv_cd_wco_arbitration` → `fct_inv_sap_cd` (**25** KR). Curriculum heroes **0015** / **0016** / **0026**; dims 8 / 7 with `is_active`. **Next:** CI + semver (step 5); optional prune duplicate core singular tests in cash_discount.
