@@ -62,7 +62,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_vendor_sap')
+                to: ref('ap_core', 'dim_vendor_sap')
                 field: vendor_id
       - name: sap_entry_date
         description: >
@@ -395,7 +395,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('dim_vendor_coupa')
+                to: ref('ap_core', 'dim_vendor_coupa')
                 field: vendor_id
       - name: invoice_number
         description: Supplier invoice reference for human validation and map checks.
@@ -443,7 +443,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_sap_core')
+                to: ref('ap_core', 'fct_inv_sap_core')
                 field: sap_inv_key
       - name: phase_level
         tests:
@@ -492,7 +492,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_coupa')
+                to: ref('ap_core', 'fct_inv_coupa')
                 field: coupa_id
       - name: status
         description: Raw Coupa workflow status on this revision.
@@ -536,7 +536,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_sap_core')
+                to: ref('ap_core', 'fct_inv_sap_core')
                 field: sap_inv_key
       - name: block_event_role
         tests:
@@ -560,7 +560,7 @@ models:
           - not_null
           - relationships:
               arguments:
-                to: ref('fct_inv_sap_core')
+                to: ref('ap_core', 'fct_inv_sap_core')
                 field: sap_inv_key
       - name: overlay_reason_code
         tests:
@@ -588,13 +588,13 @@ models:
         tests:
           - relationships:
               arguments:
-                to: ref('fct_inv_coupa_changes')
+                to: ref('ap_core', 'fct_inv_coupa_changes')
                 field: coupa_change_id
               config:
                 where: "source_change_id is not null and source_system = 'coupa'"
           - relationships:
               arguments:
-                to: ref('fct_inv_sap_changes')
+                to: ref('ap_core', 'fct_inv_sap_changes')
                 field: sap_change_id
               config:
                 where: "source_change_id is not null and source_system = 'sap'"
@@ -640,13 +640,13 @@ models:
         tests:
           - relationships:
               arguments:
-                to: ref('fct_inv_coupa_changes')
+                to: ref('ap_core', 'fct_inv_coupa_changes')
                 field: coupa_change_id
               config:
                 where: "source_change_id is not null and source_system = 'coupa'"
           - relationships:
               arguments:
-                to: ref('fct_inv_sap_changes')
+                to: ref('ap_core', 'fct_inv_sap_changes')
                 field: sap_change_id
               config:
                 where: "source_change_id is not null and source_system = 'sap'"
