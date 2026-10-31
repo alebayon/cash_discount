@@ -2,7 +2,7 @@
 
 Public summary of durable design choices for this portfolio dbt project.  
 Narrative detail, term definitions, and model inventory: see [README.md](../README.md).  
-Shared AP core (splits, arbitration, package path): [ap_core/docs/core_decisions.md](../ap_core/docs/core_decisions.md).  
+Shared AP core (splits, arbitration, package path): [ap_core docs/core_decisions.md](https://github.com/alebayon/ap_core/blob/main/docs/core_decisions.md).  
 A fuller internal decisions log is maintained locally and is not published.
 
 ---
