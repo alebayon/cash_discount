@@ -503,7 +503,41 @@ Full inventory and column contract: https://github.com/alebayon/ap_core/blob/mai
 
 Shared src, dim, map, Coupa/SAP change streams, and core ints are not listed here. See ap_core model inventory.
 
-## Sample stakeholder report
+## Showcase
+
+Synthetic storytelling for the 2024 curriculum — not production data. Each **vendor PDF** shows only what the supplier could print at invoice creation. **Story** paragraphs add client-side dates and process outcomes (aligned with curriculum seeds and tests).
+
+### 5100000016 — Acme Supplies GmbH — 15 September 2024
+
+[Invoice facsimile (PDF)](reports/showcase/5100000016.pdf)
+
+**Story of invoice:** Payment terms allow only **five** discount days (2% if paid by 20 September). Our design standard needs at least **ten** discount days before execution is even discussed. The invoice was received in AP on **5 September**, posted in SAP on **10 September**, and cleared on **25 September** — late for the discount window, but the deeper issue is the **contract**, not processing speed. **EUR 20** discount was forfeited. **Actions:** Renegotiate payment terms with Acme (move off short discount windows); block repeat POs on sub‑10‑day terms unless treasury signs off.
+
+### 5100000017 — Global Parts AG — 1 September 2024
+
+[Invoice facsimile (PDF)](reports/showcase/5100000017.pdf)
+
+**Story of invoice:** Terms are healthy (**2/10 net 30** — discount deadline **11 September**). The invoice did not arrive until **8 September**, leaving almost no feasible runway once payment reserve is reserved. SAP entry was **12 September**; clearing **16 September**. **EUR 16** lost. **Actions:** Tighten vendor send‑to‑receipt SLAs and inbound monitoring for Global Parts; escalate repeat late arrivals before they enter approval queues.
+
+### 5100000018 — Nordic Logistics AB — 1 October 2024
+
+[Invoice facsimile (PDF)](reports/showcase/5100000018.pdf)
+
+**Story of invoice:** Contract terms and receipt timing (**4 October**) are acceptable; the invoice sits in the **compressed** band between minimum and standard pre‑SAP allowance. SAP entry **10 October** (day before discount deadline **11 October**); cleared **15 October**. **EUR 12** lost — execution under pressure, not a bad contract. **Actions:** Short‑term capacity on Nordic queue before month‑end; review approver coverage when receipt lands in the compressed window.
+
+### 5100000019 — FastPay Services Ltd — 15 October 2024
+
+[Invoice facsimile (PDF)](reports/showcase/5100000019.pdf)
+
+**Story of invoice:** Received **15 October** with sound terms (discount deadline **25 October**). Pre‑SAP finished with enough runway at handoff; payment still cleared **5 November**, after the deadline. **EUR 11** lost — **payment timing**, not intake or terms. **Actions:** Confirm discount‑deadline pay runs include FastPay; check blocks/releases that delayed the automatic run.
+
+### 5100000020 — Precision Tools SA — 1 November 2024
+
+[Invoice facsimile (PDF)](reports/showcase/5100000020.pdf)
+
+**Story of invoice:** Cleared **8 November**, **before** the discount deadline (**11 November**), yet **no** cash discount was taken at clearing (**EUR 15** left on the table). This is a **capture** case — no need to reinterpret intake or contract. **Actions:** Payment file review for Precision Tools; fix clearing/discount derivation and spot‑check the next five clears.
+
+### Period report
 
 Synthetic 2024 curriculum period — client-style summary of headline KPIs, leakage by cause, and timing actions (numbers align with mart tests).
 
