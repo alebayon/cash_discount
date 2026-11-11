@@ -15,10 +15,11 @@ Read the decision log for the scope you are changing:
 | Scope | Log |
 |-------|-----|
 | Shared AP core (facts, terms, map, neutral timing, CD/WCO arbitration) | `C:\dbt\ap_core\docs\core_decisions.md` (canonical, ap_core repo) |
-| Cash discount product (leakage, V6 attribution, CD marts, curriculum) | `docs/decisions.md` |
+| Cash discount product (leakage, V6 attribution, CD marts, curriculum) | `docs/decisions_cd.md` |
+| On-time payment product (reference) | `C:\dbt\on_time_payment\docs\decisions_otp.md` |
 
 - Follow conventions in this rule file and in that log.
-- **Core** grains/columns: ap_core `docs/core_decisions.md` wins over `docs/decisions.md` until CD docs are updated explicitly.
+- **Core** grains/columns: ap_core `docs/core_decisions.md` wins over `docs/decisions_cd.md` until CD docs are updated explicitly.
 
 ap_core `docs/core_decisions.md` structure: Project context → Architecture (stable chapter) → Open questions → Decisions → Model inventory → Conventions → Chat handoff notes.
 
@@ -66,13 +67,13 @@ dbt build
 Add a dated entry to the **relevant** log so future chats stay aligned:
 
 - Core / shared AP → ap_core repo `docs/core_decisions.md` (update Model inventory there when models change).
-- Cash discount only → `docs/decisions.md` (update Model inventory there when models change).
+- Cash discount only → `docs/decisions_cd.md` (update Model inventory there when models change).
 
 ## Handoff format (mandatory)
 
-See also Conventions in ap_core `docs/core_decisions.md` and `docs/decisions.md` when those sections exist.
+See also Conventions in ap_core `docs/core_decisions.md` and `docs/decisions_cd.md` when those sections exist.
 
-- Proposed **decisions** additions: one copy-paste block per entry (full section text). Path = ap_core `docs/core_decisions.md` or `docs/decisions.md` depending on scope.
+- Proposed **decisions** additions: one copy-paste block per entry (full section text). Path = ap_core `docs/core_decisions.md` or `docs/decisions_cd.md` depending on scope.
 - Proposed **seed, model, test, or YAML** changes: **complete file contents** for every path mentioned — not bullet instructions like “update the test” or “add a CTE”.
 - If only one hunk changes, still provide either the **full file** or a **single fenced block** labeled with the exact path that can replace the entire file.
 - **No exceptions:** the reader must be able to implement without opening the chat for missing lines.

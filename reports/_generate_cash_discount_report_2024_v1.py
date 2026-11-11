@@ -1,4 +1,4 @@
-"""Client-facing cash discount report PDF (D67-D71), layout v1 — see docs/decisions.md D79."""
+"""Client-facing cash discount report PDF (D67-D71), layout v1 — see docs/decisions_cd.md D79."""
 from pathlib import Path
 
 from fpdf import FPDF

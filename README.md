@@ -30,7 +30,7 @@ Package repository: https://github.com/alebayon/ap_core
 
 ## Design rationale
 
-See docs/architecture-decisions.md for cash-discount architecture and policies (public summary).
+See docs/architecture-decisions.md for cash-discount architecture and policies (public summary). Full decision log: docs/decisions_cd.md.
 
 Shared AP spine, match, arbitration, and neutral timing: https://github.com/alebayon/ap_core/blob/main/docs/core_decisions.md and the ap_core README on the same repository.
 
