@@ -1,6 +1,6 @@
 select *
 from {{ ref('mart_cash_discount_kpi') }}
-where fct_row_count != 25
+where fct_row_count != 32
    or kpi_entitled_count != 16
    or taken_count != 3
    or excluded_count != 1

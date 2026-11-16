@@ -11,7 +11,7 @@ from (
         round(sum(case when is_leakage then lost_discount_amount else 0 end), 2) as leakage_amount_total
     from {{ ref('fct_inv_sap_cd') }}
 ) actual
-where row_count != 25
+where row_count != 32
    or kpi_entitled != 16
    or taken_true != 3
    or not_taken != 13
